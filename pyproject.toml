@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zakadi"
+version = "0.0.1"
+description = "Zakadi face-liveness API client for Python (pre-release): shared protocol constants now, the server-side client for sessions, results and webhook verification next."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Moses Gameli" }]
+keywords = ["zakadi", "liveness", "biometrics", "identity-verification", "kyc"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://zakadi.dev"
+Documentation = "https://docs.zakadi.dev"
+Repository = "https://github.com/mosesgameli/zakadi-python"
+Issues = "https://github.com/mosesgameli/zakadi-python/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zakadi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/zakadi", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]

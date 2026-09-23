@@ -114,7 +114,7 @@ class SessionTests(ClientTestCase):
 
 
 class AuthorizationTests(ClientTestCase):
-    def test_every_request_carries_the_api_key(self) -> None:
+    def test_only_v1_requests_carry_the_api_key(self) -> None:
         self.api.reply(
             "POST",
             SESSIONS,
@@ -127,8 +127,10 @@ class AuthorizationTests(ClientTestCase):
         self.client.results.verify_token(result.result_token)
         paths = [r.path for r in self.api.received]
         self.assertEqual(paths, [SESSIONS, SESSIONS, RESULT, JWKS])
-        for call in self.api.received:
+        *calls, jwks = self.api.received
+        for call in calls:
             self.assertEqual(call.headers["authorization"], f"Bearer {API_KEY}")
+        self.assertNotIn("authorization", jwks.headers)
 
 
 class RetryTests(ClientTestCase):

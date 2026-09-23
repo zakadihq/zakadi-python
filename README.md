@@ -12,3 +12,7 @@ r = client.sessions.result(s.session_id)
 ```
 
 Links: https://zakadi.dev (documentation), https://github.com/zakadihq/zakadi-python (source).
+
+## Licence
+
+Zakadi SDKs and client libraries are open source under the Apache License 2.0 (see `LICENSE`; the `NOTICE` file reserves the Zakadi trademarks). They are clients for the Zakadi service, which is proprietary; using it requires an account and acceptance of the Zakadi Terms of Service. Zakadi and the Zakadi logo are trademarks and are not covered by the Apache licence.

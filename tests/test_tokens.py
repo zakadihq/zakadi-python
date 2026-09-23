@@ -170,6 +170,24 @@ class TokenTests(unittest.TestCase):
                 self.assertEqual(self.fetches(), fetches)
             self.now += 60
 
+    def test_threads_share_a_failed_first_fetch(self) -> None:
+        hold = threading.Event()
+        self.addCleanup(hold.set)
+        self.api.reply(
+            "GET",
+            JWKS,
+            Reply(404, b"<html>not found</html>", hold=hold),
+            ok({"keys": [self.signer.jwk()]}),
+        )
+        claims = result_claims()
+        token = self.signer.token(claims)
+        outcomes = self.verify_at_once(token, hold)
+        statuses = [o.status if isinstance(o, ApiError) else o for o in outcomes]
+        self.assertEqual(statuses, [404] * THREADS)
+        self.assertEqual(self.fetches(), 1)  # the waiters made no request
+        self.assertEqual(self.results.verify_token(token), claims)  # clock unmoved
+        self.assertEqual(self.fetches(), 2)  # a later call fetches again
+
     def test_a_failed_refetch_keeps_the_keys_and_starts_the_floor(self) -> None:
         claims = result_claims()
         self.results.verify_token(self.signer.token(claims))

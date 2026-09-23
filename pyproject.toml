@@ -33,3 +33,13 @@ packages = ["src/zakadi"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/zakadi", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+
+[dependency-groups]
+dev = [
+    "lefthook>=2.1.14",
+    "ruff>=0.16.8",
+    "ty>=0.0.83",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

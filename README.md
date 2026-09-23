@@ -6,6 +6,7 @@ Pre-release. This version ships the shared protocol constants (session states an
 
 ```python
 from zakadi import Zakadi
+
 client = Zakadi(api_key="zk_live_...", base_url="https://api.zakadi.dev")
 s = client.sessions.create(user_ref="cust-88213", locale="en-NG", channel="android")
 r = client.sessions.result(s.session_id)

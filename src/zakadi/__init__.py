@@ -7,6 +7,7 @@ verification) follows in a later release. See https://zakadi.dev.
 
 from zakadi.protocol import (
     SUBPROTOCOL,
+    WEBHOOK_EVENTS,
     Band,
     ChallengeKind,
     CloseCode,
@@ -17,15 +18,14 @@ from zakadi.protocol import (
     SessionState,
     SessionStatus,
     TerminalState,
-    WEBHOOK_EVENTS,
     terminal_state_for_end,
 )
 
 __version__ = "0.0.1"
 
 __all__ = [
-    "__version__",
     "SUBPROTOCOL",
+    "WEBHOOK_EVENTS",
     "Band",
     "ChallengeKind",
     "CloseCode",
@@ -36,6 +36,6 @@ __all__ = [
     "SessionState",
     "SessionStatus",
     "TerminalState",
-    "WEBHOOK_EVENTS",
+    "__version__",
     "terminal_state_for_end",
 ]

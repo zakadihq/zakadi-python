@@ -1,0 +1,18 @@
+# Zakadi repository standard: Dependabot.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      uv-minor-and-patch:
+        update-types: ["minor", "patch"]

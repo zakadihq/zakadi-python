@@ -29,7 +29,9 @@ class ProtocolTests(unittest.TestCase):
 
     def test_end_mapping(self) -> None:
         self.assertEqual(terminal_state_for_end(EndReason.OK), TerminalState.COMPLETED)
-        self.assertEqual(terminal_state_for_end(EndReason.MAX_DURATION), TerminalState.INCOMPLETE)
+        self.assertEqual(
+            terminal_state_for_end(EndReason.MAX_DURATION), TerminalState.INCOMPLETE
+        )
         self.assertEqual(CloseCode.CANCELLED_BY_USER, 4010)
 
 

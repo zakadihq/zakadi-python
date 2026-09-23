@@ -3,6 +3,9 @@
 # the registry dry run (twine check) that the release workflow relies on. The unit job
 # runs on Python 3.10, the floor of requires-python (spec 02 2.11), and on 3.13; the
 # hooks run the developer's Python.
+# The lint job ends with the scan (CI only, references/GITHUB.md): pip-licenses over
+# the runtime dependencies in an isolated environment against the excluded list of
+# spec 00 0.10, then pip-audit over the same set, exported from uv.lock.
 name: ci
 
 on:
@@ -38,6 +41,22 @@ jobs:
       - run: uv sync --frozen
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ty check
+      - name: scan
+        shell: bash
+        env:
+          EXCLUDED_LICENCES: '(^|[^[:alnum:]])(A?GPL|SSPL|RSAL)|GNU (Affero )?General Public|Server Side Public|Redis Source Available|-NC([^[:alnum:]]|$)|[Nn]on[- ]?[Cc]ommercial|FoxIO'
+          # The floor of requires-python, as in the unit job: the lock marks some
+          # dependencies for older Pythons only (typing-extensions below 3.11), and
+          # both tools keep only what applies to the interpreter they run on.
+          UV_PYTHON: "3.10"
+        run: |
+          uv run --frozen --isolated --no-dev --with pip-licenses==5.5.5 pip-licenses --format=csv | tee "$RUNNER_TEMP/licences.txt"
+          if grep -E "$EXCLUDED_LICENCES" "$RUNNER_TEMP/licences.txt"; then
+            echo "scan: a licence excluded by spec 00 0.10 is listed above" >&2
+            exit 1
+          fi
+          uv export --quiet --frozen --no-dev --no-emit-workspace --format requirements.txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit@2.10.1 --disable-pip --no-deps --requirement "$RUNNER_TEMP/requirements.txt"
 
   unit:
     runs-on: ubuntu-latest

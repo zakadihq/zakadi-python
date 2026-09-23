@@ -15,6 +15,7 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -37,6 +38,7 @@ _MAX_RETRIES = 2
 _BACKOFF = 0.5  # seconds before the first retry, doubled for each later one
 _MAX_RETRY_AFTER = 60.0  # a longer Retry-After ends the retries instead
 _WEBHOOK_TOLERANCE = 300  # seconds (2.4)
+_JWKS_FLOOR = 60.0  # seconds between JWKS requests for unknown kids (2.11)
 _JWS = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
 
@@ -310,13 +312,19 @@ class Results:
     def __init__(self, transport: _Transport) -> None:
         self._transport = transport
         self._keys: dict[str, ec.EllipticCurvePublicKey] | None = None
+        self._lock = threading.Lock()  # held across the floor check and the request
+        self._last_request = 0.0  # time.monotonic() when the last JWKS request ended
 
     def verify_token(self, token: str) -> dict[str, Any]:
         """The claims of an unexpired ES256 JWS signed by the JWKS key named by ``kid``.
 
-        Raises ``VerificationError`` for any other ``alg``, an unknown ``kid``, a
+        The JWKS is cached. A ``kid`` the cache lacks refetches it when the last JWKS
+        request, failed ones included, is at least 60 s old; until then that ``kid``
+        fails without a request.
+
+        Raises ``VerificationError`` for any other ``alg``, a ``kid`` the JWKS lacks, a
         signature that does not verify, or an ``exp`` that is missing or past;
-        ``ApiError`` when the JWKS cannot be fetched.
+        ``ApiError`` when a JWKS request fails, which leaves the cached keys in place.
         """
         if not isinstance(token, str) or not _JWS.fullmatch(token):
             raise VerificationError("token is not a compact JWS")
@@ -350,11 +358,27 @@ class Results:
         return claims
 
     def _key(self, kid: str) -> ec.EllipticCurvePublicKey:
-        """The cached key for ``kid``; an unknown ``kid`` refetches the JWKS once."""
-        key = self._keys.get(kid) if self._keys is not None else None
-        if key is None:
-            self._keys = self._fetch_keys()
-            key = self._keys.get(kid)
+        """The key for ``kid`` from the cached JWKS, refetched when it lacks ``kid``.
+
+        The refetch waits for the floor: until ``_JWKS_FLOOR`` seconds after the last
+        JWKS request ended, failed ones included, a ``kid`` the cache lacks raises
+        ``VerificationError`` without a request. With nothing cached, every call
+        fetches. The lock spans the check and the request, so threads share one
+        request; a failed one leaves the cached keys as they were.
+        """
+        keys = self._keys  # replaced whole, never changed in place: read unlocked
+        if keys is None or kid not in keys:
+            with self._lock:
+                keys = self._keys
+                if keys is None or (
+                    kid not in keys
+                    and time.monotonic() - self._last_request >= _JWKS_FLOOR
+                ):
+                    try:
+                        keys = self._keys = self._fetch_keys()
+                    finally:
+                        self._last_request = time.monotonic()
+        key = keys.get(kid)
         if key is None:
             raise VerificationError("no JWKS key has the token's kid")
         return key

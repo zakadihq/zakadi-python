@@ -29,7 +29,7 @@ claims = client.results.verify_token(r.result_token)
 - `sessions.create` takes the fields of `POST /v1/sessions` as keyword arguments and returns a `Session`; `sessions.result` returns a `Result`. Both are dataclasses with the API's fields; timestamps stay the strings the API sends.
 - A problem response raises `ApiError` with its `status`, `code` and `request_id`; `ResultPending` is the `result_pending` case. 429 and 5xx responses are retried twice, with backoff that honours `Retry-After` and the same `Idempotency-Key` (the `idempotency_key` given, or one generated per call); nothing else is retried. Each attempt times out after 30 s.
 - `webhooks.verify` takes the request headers, the raw body exactly as received and the endpoint's secret. It returns a `WebhookEvent`, or raises `VerificationError` when `Zakadi-Webhook-Signature` does not match or the timestamp is older than 300 s.
-- `results.verify_token` checks a `result_token` (ES256) against the API's JWKS, which it caches and refetches once for an unknown `kid`, and returns its claims; any other token, or an expired one, raises `VerificationError`.
+- `results.verify_token` checks a `result_token` (ES256) against the API's JWKS, which it fetches without the API key, caches, and refetches for an unknown `kid` at most once per 60 s, and returns its claims; any other token, or an expired one, raises `VerificationError`, as does an unknown `kid` inside those 60 s, without a request.
 - Tokens stay out of the package's log records (logger `zakadi`) and out of the `repr` of every returned object. Do not log them either.
 
 The API's other operations follow in a later release, with the layer generated from the API's OpenAPI document.

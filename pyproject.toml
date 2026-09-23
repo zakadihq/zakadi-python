@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "zakadi"
 version = "0.0.1"
-description = "Zakadi face-liveness API client for Python (pre-release): shared protocol constants now, the server-side client for sessions, results and webhook verification next."
+description = "Zakadi face-liveness API client for Python (pre-release): sessions, results, webhook and result-token verification, and the shared protocol constants."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

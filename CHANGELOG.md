@@ -6,6 +6,13 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `Zakadi` client: `sessions.create`, `sessions.result`, `webhooks.verify` and
+  `results.verify_token`, returning `Session`, `Result`, `WebhookEvent` and the token
+  claims, raising `ApiError`, `ResultPending` and `VerificationError`, and retrying 429
+  and 5xx responses. New dependency: `cryptography`.
+
 ### Changed
 
 - Licence: Apache License 2.0 with a NOTICE file (0.0.1 shipped with an

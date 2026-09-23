@@ -314,6 +314,7 @@ class Results:
         self._keys: dict[str, ec.EllipticCurvePublicKey] | None = None
         self._lock = threading.Lock()  # held across the floor check and the request
         self._last_request = 0.0  # time.monotonic() when the last JWKS request ended
+        self._failure: Exception | None = None  # the error of a failed first fetch
 
     def verify_token(self, token: str) -> dict[str, Any]:
         """The claims of an unexpired ES256 JWS signed by the JWKS key named by ``kid``.
@@ -325,6 +326,7 @@ class Results:
         Raises ``VerificationError`` for any other ``alg``, a ``kid`` the JWKS lacks, a
         signature that does not verify, or an ``exp`` that is missing or past;
         ``ApiError`` when a JWKS request fails, which leaves the cached keys in place.
+        A call that waited on a failed first fetch re-raises its error.
         """
         if not isinstance(token, str) or not _JWS.fullmatch(token):
             raise VerificationError("token is not a compact JWS")
@@ -362,22 +364,32 @@ class Results:
 
         The refetch waits for the floor: until ``_JWKS_FLOOR`` seconds after the last
         JWKS request ended, failed ones included, a ``kid`` the cache lacks raises
-        ``VerificationError`` without a request. With nothing cached, every call
-        fetches. The lock spans the check and the request, so threads share one
-        request; a failed one leaves the cached keys as they were.
+        ``VerificationError`` without a request. The lock spans the check and the
+        request, so threads share one request; a failed one leaves the cached keys as
+        they were. With nothing cached, a call fetches, unless a fetch failed while it
+        waited: then it re-raises that fetch's error without a request.
         """
-        keys = self._keys  # replaced whole, never changed in place: read unlocked
+        # Both are replaced whole, never changed in place, so they are read unlocked;
+        # the failure first, so a fetch failing after this line counts as waited on.
+        failure, keys = self._failure, self._keys
         if keys is None or kid not in keys:
             with self._lock:
-                keys = self._keys
+                keys, shared = self._keys, self._failure
+                if keys is None and shared is not None and shared is not failure:
+                    raise shared  # the fetch this call waited on failed
                 if keys is None or (
                     kid not in keys
                     and time.monotonic() - self._last_request >= _JWKS_FLOOR
                 ):
                     try:
-                        keys = self._keys = self._fetch_keys()
+                        keys = self._fetch_keys()
+                    except Exception as error:
+                        if self._keys is None:
+                            self._failure = error  # for the calls waiting on it
+                        raise
                     finally:
                         self._last_request = time.monotonic()
+                    self._keys, self._failure = keys, None
         key = keys.get(kid)
         if key is None:
             raise VerificationError("no JWKS key has the token's kid")

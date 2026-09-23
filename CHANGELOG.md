@@ -14,8 +14,9 @@ All notable changes to this package are documented here. The format follows
   and 5xx responses. New dependency: `cryptography`.
 - JWKS refetch floor: `results.verify_token` refetches the JWKS for an unknown `kid`
   at most once per 60 s, failed requests included, and inside that floor raises
-  `VerificationError` without a request; concurrent verifications share one request,
-  and a failed refetch keeps the cached keys.
+  `VerificationError` without a request. Concurrent verifications share one request:
+  calls that waited on a failed first fetch re-raise its error without a request of
+  their own. A failed refetch keeps the cached keys.
 - The API key goes to `/v1/` paths only: the request for the public JWKS
   (`/.well-known/jwks.json`) carries no `Authorization` header.
 

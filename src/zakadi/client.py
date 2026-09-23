@@ -148,8 +148,8 @@ class _Transport:
         from zakadi import __version__
 
         self._base_url = base_url.rstrip("/")
+        self._authorization = f"Bearer {api_key}"
         self._headers = {
-            "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
             "User-Agent": f"zakadi-python/{__version__}",
         }
@@ -162,8 +162,13 @@ class _Transport:
         body: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        """Send one call, retrying 429 and 5xx; return the JSON object it answers."""
+        """Send one call, retrying 429 and 5xx; return the JSON object it answers.
+
+        The API key goes to ``/v1/`` paths only, never to the public JWKS (2.11).
+        """
         headers = dict(self._headers)
+        if path.startswith("/v1/"):
+            headers["Authorization"] = self._authorization
         data = None
         if body is not None:
             data = json.dumps(body).encode()
@@ -451,9 +456,10 @@ class Webhooks:
 class Zakadi:
     """Client for the Zakadi server-to-server API (2.11).
 
-    Every request carries ``Authorization: Bearer <api_key>``, times out after 30 s,
-    and is retried twice on 429 and 5xx with backoff that honours ``Retry-After``.
-    Transport failures (timeouts, refused connections) propagate from urllib.
+    Every ``/v1/`` request carries ``Authorization: Bearer <api_key>``; the JWKS
+    request goes without it. Each request times out after 30 s and is retried twice
+    on 429 and 5xx with backoff that honours ``Retry-After``. Transport failures
+    (timeouts, refused connections) propagate from urllib.
     """
 
     def __init__(

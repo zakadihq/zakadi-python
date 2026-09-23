@@ -12,6 +12,8 @@ All notable changes to this package are documented here. The format follows
   `results.verify_token`, returning `Session`, `Result`, `WebhookEvent` and the token
   claims, raising `ApiError`, `ResultPending` and `VerificationError`, and retrying 429
   and 5xx responses. New dependency: `cryptography`.
+- The API key goes to `/v1/` paths only: the request for the public JWKS
+  (`/.well-known/jwks.json`) carries no `Authorization` header.
 
 ### Changed
 

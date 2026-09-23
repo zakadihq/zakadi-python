@@ -7,7 +7,7 @@ pre-commit:
     - name: ascii
       run: '! LC_ALL=C grep -nHI "[^[:print:][:space:]]" {staged_files}'
     - name: secrets
-      glob: "**/.env*"
+      glob: "{.env*,**/.env*}"
       run: 'echo "secrets: {staged_files} must not be committed (spec 00 0.11)" >&2; exit 1'
     # Alone and first: uv run re-locks as a side effect, so a stale lockfile is caught
     # before a parallel job repairs it silently.

@@ -1,6 +1,8 @@
 # Zakadi repository standard: ci.yml for the Python client (uv). The commands are the
 # ones in lefthook.yml; the tests are unittest, and the integration job is the build and
-# the registry dry run (twine check) that the release workflow relies on.
+# the registry dry run (twine check) that the release workflow relies on. The unit job
+# runs on Python 3.10, the floor of requires-python (spec 02 2.11), and on 3.13; the
+# hooks run the developer's Python.
 name: ci
 
 on:
@@ -39,11 +41,16 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
       - run: uv sync --frozen
       - run: uv run --frozen python -m unittest discover -s tests -v
 

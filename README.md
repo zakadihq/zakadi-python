@@ -11,4 +11,4 @@ s = client.sessions.create(user_ref="cust-88213", locale="en-NG", channel="andro
 r = client.sessions.result(s.session_id)
 ```
 
-Links: https://zakadi.dev (documentation), https://github.com/mosesgameli/zakadi-python (source).
+Links: https://zakadi.dev (documentation), https://github.com/zakadihq/zakadi-python (source).

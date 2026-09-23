@@ -24,8 +24,8 @@ dependencies = []
 [project.urls]
 Homepage = "https://zakadi.dev"
 Documentation = "https://docs.zakadi.dev"
-Repository = "https://github.com/mosesgameli/zakadi-python"
-Issues = "https://github.com/mosesgameli/zakadi-python/issues"
+Repository = "https://github.com/zakadihq/zakadi-python"
+Issues = "https://github.com/zakadihq/zakadi-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zakadi"]

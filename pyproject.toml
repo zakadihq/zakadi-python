@@ -20,7 +20,9 @@ classifiers = [
   "Topic :: Security",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "cryptography>=50.0.1",
+]
 
 [project.urls]
 Homepage = "https://zakadi.dev"

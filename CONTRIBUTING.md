@@ -17,23 +17,28 @@ Signed-off-by: Ada Lovelace <ada@example.com>
 ```
 
 The sign-off, like every commit message, is ASCII only (the commit-msg hook refuses
-anything else), so a name with accents or tone marks is written without them. A
-contribution with a commit that is not signed off is not merged. Sign off commits
-already made with `git rebase --signoff main`, then push again.
+anything else), so a name with accents or tone marks is written without them. The
+copyright holder named in `NOTICE` does not sign off: the holder's commits, those made
+on the holder's behalf among them, carry no trailer at all. Every other contributor
+signs off every commit, and a contribution with a commit that is not signed off is not
+merged. Sign off commits already made with `git rebase --signoff main`, then push again.
 
 ## Before the pull request
 
 - For anything beyond a small fix, open an issue first, so the change is agreed before
   it is written.
-- After cloning, install the git hooks: `lefthook install`. They run the same commands
-  as CI (the ASCII check, the formatter and the linter on commit, the unit tests on
-  push); they are never bypassed.
+- After cloning, install the git hooks: in an npm repository `npm ci` installs them,
+  since `package.json` approves lefthook's install script; elsewhere run
+  `lefthook install`. They run the same commands as CI (the ASCII check, the formatter
+  and the linter on commit, the unit tests on push); they are never bypassed.
 - Every file is ASCII only.
 - A change a consumer can see adds a line under `[Unreleased]` in the package's
   `CHANGELOG.md`, in the group it belongs to; never a version or a release heading.
 - Commit messages follow Conventional Commits, with a subject of at most 72
-  characters. `Signed-off-by` is the only trailer: the commit-msg hook refuses
-  `Co-authored-by` trailers and generated-by footers.
+  characters. `Signed-off-by` is the one trailer the commit-msg hook admits: it refuses
+  every other trailer, `Co-authored-by` and `Reviewed-by` among them, and generated-by
+  footers. git reads a last paragraph of `Key: value` lines as trailers, so a reference
+  such as `Refs #12` goes without the colon.
 - A new dependency never carries an excluded licence: GPL or AGPL, SSPL or the Redis
   Source Available License, the FoxIO licence, or a non-commercial licence. The `lint`
   job reports the licence of every dependency, fails on an excluded one, and scans the

@@ -22,6 +22,7 @@ All notable changes to this package are documented here. The format follows
 
 ### Changed
 
+- CI: every `astral-sh/setup-uv` step pins uv 0.11.32, the version the workstations, the hooks and the images run; the runner had taken the newest release (0.12.21) on its own.
 - Licence: Apache License 2.0 with a NOTICE file (0.0.1 shipped with an
   all-rights-reserved placeholder).
 

@@ -39,8 +39,8 @@ include = ["src/zakadi", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pypro
 [dependency-groups]
 dev = [
     "lefthook>=2.1.14",
-    "ruff>=0.16.8",
-    "ty>=0.0.83",
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
 ]
 
 [tool.ruff.lint]

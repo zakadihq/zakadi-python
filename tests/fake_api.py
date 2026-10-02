@@ -38,13 +38,19 @@ class Reply:
 @dataclass
 class Received:
     method: str
-    path: str
+    path: str  # as sent, percent-encoding kept, without the query
+    query: str  # the query string, empty without one
     headers: dict[str, str]  # names lower-cased
     body: bytes
 
 
 def ok(body: Any, status: int = 200) -> Reply:
     return Reply(status, body, {"Content-Type": "application/json"})
+
+
+def empty(status: int) -> Reply:
+    """An answer without a body, such as a 202 or a 204."""
+    return Reply(status, b"")
 
 
 def problem(
@@ -68,7 +74,10 @@ class _QuietServer(ThreadingHTTPServer):
 
 
 class FakeApi:
-    """Answers each ``(method, path)`` with its scripted replies; the last repeats."""
+    """Answers each ``(method, path)`` with its scripted replies; the last repeats.
+
+    The path is matched as sent, without the query string.
+    """
 
     def __init__(self) -> None:
         self.received: list[Received] = []
@@ -81,6 +90,12 @@ class FakeApi:
                 api._answer(self)
 
             def do_POST(self) -> None:
+                api._answer(self)
+
+            def do_PUT(self) -> None:
+                api._answer(self)
+
+            def do_DELETE(self) -> None:
                 api._answer(self)
 
             def log_message(self, format: str, *args: Any) -> None:
@@ -109,12 +124,13 @@ class FakeApi:
     def _answer(self, handler: BaseHTTPRequestHandler) -> None:
         length = int(handler.headers.get("Content-Length") or 0)
         headers = {name.lower(): value for name, value in handler.headers.items()}
+        path, _, query = handler.path.partition("?")
         received = Received(
-            handler.command, handler.path, headers, handler.rfile.read(length)
+            handler.command, path, query, headers, handler.rfile.read(length)
         )
         with self._lock:
             self.received.append(received)
-            queue = self._replies.get((handler.command, handler.path), [])
+            queue = self._replies.get((handler.command, path), [])
             reply = queue.pop(0) if len(queue) > 1 else None
             if reply is None:
                 reply = queue[0] if queue else problem(404, "session_not_found")

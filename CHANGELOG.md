@@ -19,6 +19,14 @@ All notable changes to this package are documented here. The format follows
   their own. A failed refetch keeps the cached keys.
 - The API key goes to `/v1/` paths only: the request for the public JWKS
   (`/.well-known/jwks.json`) carries no `Authorization` header.
+- The API's other operations: `sessions.get`, `sessions.list`, `sessions.cancel`,
+  `sessions.evidence`, `sessions.purge`, `subjects.purge`, `jobs.get`,
+  `webhooks.create`, `webhooks.list`, `webhooks.get`, `webhooks.update`,
+  `webhooks.delete`, `webhooks.deliveries`, `tenants.policy`, `tenants.update_policy`
+  and `tenants.usage`. Each returns the API's JSON body, or None for an answer without
+  one (`sessions.purge`, `webhooks.delete`). Only idempotent calls are retried:
+  `sessions.cancel` and `subjects.purge` never are, and `webhooks.create` repeats one
+  `Idempotency-Key`, given or generated, on every attempt.
 - `zakadi.models`: `TypedDict` and `Literal` types generated from the API's OpenAPI
   document, whose copy, `openapi/openapi.yaml` (also in the sdist), is pinned by
   commit and SHA-256. New dependency: `typing-extensions`.

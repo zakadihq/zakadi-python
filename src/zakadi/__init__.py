@@ -1,9 +1,9 @@
 """Zakadi face-liveness API client for Python.
 
-Pre-release. ``Zakadi`` is the server-side client: it creates sessions, reads
-results, verifies webhook deliveries and verifies result tokens. The package also
-ships the shared constants of the Zakadi protocol (``zakadi.v1``). See
-https://zakadi.dev.
+Pre-release. ``Zakadi`` is the server-side client: it calls the API's operations,
+typed with ``zakadi.models``, verifies webhook deliveries and verifies result tokens.
+The package also ships the shared constants of the Zakadi protocol (``zakadi.v1``).
+See https://zakadi.dev.
 """
 
 from zakadi.client import (

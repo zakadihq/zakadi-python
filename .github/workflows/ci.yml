@@ -43,6 +43,8 @@ jobs:
       - run: uv sync --frozen
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ty check
+      # The pinned copy of the API's OpenAPI document.
+      - run: sh scripts/fetch-openapi.sh --check
       - name: scan
         shell: bash
         env:

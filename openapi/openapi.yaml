@@ -1,0 +1,3884 @@
+openapi: 3.1.0
+info:
+  title: Zakadi API
+  version: 1.0.0
+  description: >-
+    The server-to-server API of Zakadi (spec/02-api.md): sessions, results, webhooks,
+    tenant policy and usage, the SDK configuration and telemetry, health and the JWKS.
+    This document is the source of truth (D84): the `api` service's handlers and the
+    Python and Node clients are generated from it. Bodies are JSON in UTF-8 over TLS,
+    every response carries `Zakadi-Request-Id`, and errors are RFC 9457 problems
+    (`application/problem+json`) whose `code` is one of the values of 2.9.
+servers:
+  - url: https://api.zakadi.dev
+security:
+  - bearer: []
+tags:
+  - name: Sessions
+    description: Create, list, read and cancel liveness sessions (2.2).
+  - name: Results
+    description: Verdicts, evidence, deletion and deletion jobs (2.3).
+  - name: Webhooks
+    description: Webhook endpoints, their delivery attempts and the deliveries themselves (2.4).
+  - name: Tenants
+    description: Tenant policy (2.5) and usage (2.7).
+  - name: SDK
+    description: Public endpoints the SDKs call without a key (2.6, 2.10).
+  - name: Health
+    description: Control plane liveness and ingest health (2.7).
+  - name: Keys
+    description: The public keys that verify client and result tokens (2.8).
+
+paths:
+  /v1/sessions:
+    parameters:
+      - $ref: '#/components/parameters/ZakadiSignature'
+    post:
+      operationId: createSession
+      tags: [Sessions]
+      summary: Create a session
+      description: >-
+        Creates a session for one end user. The RP passes `client_token`, `ingest`,
+        `prompt_pack` and `ui` to the SDK unchanged and never logs the token. The same
+        `Idempotency-Key` with the same body returns the original response for 24 h;
+        with a different body the answer is 422 `idempotency_conflict`.
+        `evidence.clip` needs the tenant policy's `evidence_clip_allowed`. Rate
+        limited per key: 600 requests per minute by default, tenant-configurable.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        description: The session to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreate'
+            example:
+              user_ref: cust-88213
+              locale: en-NG
+              channel: android
+              device_correlation_id: dev-4b7e1c90
+              policy:
+                version: 12
+                overrides:
+                  min_actions: 2
+                  languages: [en-NG, fr-CI]
+              ingest_hint:
+                country: NG
+              callback:
+                url: https://rp.example/liveness/hook
+                secret_ref: wh_sec_01
+              metadata:
+                flow: onboarding
+                attempt: 1
+              evidence:
+                audit_frames: true
+                clip: false
+                retention_days: 7
+      responses:
+        '201':
+          description: The session was created.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCreated'
+              example:
+                session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                client_token: eyJhbGciOiJFUzI1NiIsImtpZCI6ImNwLTIwMjYtMDkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FwaS56YWthZGkuZGV2IiwiYXVkIjoiaW5nZXN0Iiwic3ViIjoic2VzXzAxSjhaUTRYS0QzTTdWMk45QjZUNVI4VzFIIiwidGlkIjoiNGYxYzJkM2UtNWE2Yi00YzdkLThlOWYtMGExYjJjM2Q0ZTVmIiwianRpIjoiVVhpbmVLNEpJcTA2X2hqdEdqdDBRZyIsImlhdCI6MTc5MDA3MTIwMCwibmJmIjoxNzkwMDcxMjAwLCJleHAiOjE3OTAwNzE1MDAsInBvbCI6MTIsImJhbmRfbWF4IjoiQSIsImluZyI6WyJldS13ZXN0LTIiLCJhZi1zb3V0aC0xIl0sIm5vbmNlIjoiRGF6NmFmdHVZVWhmRVA4TXdUcjRFZz09IiwibGFuZyI6ImVuLU5HIn0.K2gjooCNvv5KTzNa6EchwiZ0aKJq7Qu33EHJ_vaQ7kCD_Poyaaj77XNZdMevEsPR_Rb7U0KW9ejM-ixOcycuWw
+                expires_at: '2026-09-22T10:05:00Z'
+                ingest:
+                  - region: eu-west-2
+                    url: wss://ingest-euw2.zakadi.dev/v1/sessions/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/stream
+                  - region: af-south-1
+                    url: wss://ingest-afs1.zakadi.dev/v1/sessions/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/stream
+                prompt_pack:
+                  lang: en-NG
+                  version: '2026.09.1'
+                  url: https://cdn.zakadi.dev/packs/en-NG/2026.09.1/manifest.json
+                ui:
+                  consent_copy:
+                    en-NG:
+                      title: A short video check
+                      body: >-
+                        We will ask you to follow two short prompts on camera to confirm
+                        that you are present.
+                      recording_notice: Two still frames from this call are kept for 7 days for audit.
+                  brand:
+                    primary: '#0A5'
+                    logo_url: null
+                  badge_text: null
+                  packs:
+                    - lang: en-NG
+                      version: '2026.09.1'
+                      url: https://cdn.zakadi.dev/packs/en-NG/2026.09.1/manifest.json
+                    - lang: fr-CI
+                      version: '2026.09.1'
+                      url: https://cdn.zakadi.dev/packs/fr-CI/2026.09.1/manifest.json
+                policy_version: 12
+                status: created
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '422':
+          $ref: '#/components/responses/UnprocessableSession'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+    get:
+      operationId: listSessions
+      tags: [Sessions]
+      summary: List sessions
+      description: >-
+        Lists the tenant's sessions newest first, one page at a time; `next_cursor`
+        fetches the next page and is null on the last. Rate limited per key: 3,000
+        GET requests per minute.
+      parameters:
+        - name: user_ref
+          in: query
+          required: false
+          description: Only sessions created for this end-user reference.
+          schema:
+            type: string
+            minLength: 1
+          example: cust-88213
+        - name: status
+          in: query
+          required: false
+          description: Only sessions in this status.
+          schema:
+            $ref: '#/components/schemas/SessionStatus'
+          example: passed
+        - name: from
+          in: query
+          required: false
+          description: Only sessions created at or after this time.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-09-22T00:00:00Z'
+        - name: to
+          in: query
+          required: false
+          description: Only sessions created before this time.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-09-23T00:00:00Z'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of sessions, newest first.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPage'
+              example:
+                data:
+                  - session_id: ses_01J8ZQ8B4D6F8H0K2N4Q6S8V0X
+                    status: expired
+                    created_at: '2026-09-22T12:00:00Z'
+                    connected_at: null
+                    ended_at: '2026-09-22T12:15:00Z'
+                    verdict_at: '2026-09-22T12:15:00Z'
+                    policy_version: 12
+                    channel: web
+                    ingest_region: null
+                    band: null
+                    metadata:
+                      flow: onboarding
+                      attempt: 1
+                  - session_id: ses_01J8ZQ7A3C5E7G9J1M3P5R7T9V
+                    status: aborted
+                    created_at: '2026-09-22T11:14:30Z'
+                    connected_at: '2026-09-22T11:14:48Z'
+                    ended_at: '2026-09-22T11:15:20Z'
+                    verdict_at: '2026-09-22T11:15:39Z'
+                    policy_version: 12
+                    channel: android
+                    ingest_region: af-south-1
+                    band: A
+                    metadata:
+                      flow: onboarding
+                      attempt: 2
+                  - session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                    status: passed
+                    created_at: '2026-09-22T10:00:00Z'
+                    connected_at: '2026-09-22T10:00:21Z'
+                    ended_at: '2026-09-22T10:00:58Z'
+                    verdict_at: '2026-09-22T10:01:12Z'
+                    policy_version: 12
+                    channel: android
+                    ingest_region: af-south-1
+                    band: A
+                    metadata:
+                      flow: onboarding
+                      attempt: 1
+                next_cursor: c2VzXzAxSjhaUTRYS0QzTTdWMk45QjZUNVI4VzFI
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getSession
+      tags: [Sessions]
+      summary: Get a session
+      description: >-
+        Returns the session's status and timestamps. Rate limited per key: 3,000 GET
+        requests per minute.
+      responses:
+        '200':
+          description: The session.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              example:
+                session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                status: passed
+                created_at: '2026-09-22T10:00:00Z'
+                connected_at: '2026-09-22T10:00:21Z'
+                ended_at: '2026-09-22T10:00:58Z'
+                verdict_at: '2026-09-22T10:01:12Z'
+                policy_version: 12
+                channel: android
+                ingest_region: af-south-1
+                band: A
+                metadata:
+                  flow: onboarding
+                  attempt: 1
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/SessionNotFoundLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+    delete:
+      operationId: purgeSession
+      tags: [Results]
+      summary: Purge a session's data
+      description: >-
+        Purges the session's evidence, embeddings and media-derived data at once and
+        marks its result `purged`; the decision and timestamps are kept for 30 days for
+        billing and dispute handling, then deleted.
+      responses:
+        '202':
+          description: The purge was accepted.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/sessions/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    post:
+      operationId: cancelSession
+      tags: [Sessions]
+      summary: Cancel a session
+      description: >-
+        Cancels a session that has not ended; if it is connected, the edge sends `end
+        aborted user_cancel` (reason `rp_cancel`).
+      responses:
+        '200':
+          description: The cancelled session.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              example:
+                session_id: ses_01J8ZQ7A3C5E7G9J1M3P5R7T9V
+                status: aborted
+                created_at: '2026-09-22T11:14:30Z'
+                connected_at: '2026-09-22T11:14:48Z'
+                ended_at: '2026-09-22T11:15:20Z'
+                verdict_at: null
+                policy_version: 12
+                channel: android
+                ingest_region: af-south-1
+                band: null
+                metadata:
+                  flow: onboarding
+                  attempt: 2
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionNotCancellable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/sessions/{id}/result:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getResult
+      tags: [Results]
+      summary: Get a session's result
+      description: >-
+        Returns the verdict. Until it exists the answer is 404 with code
+        `result_pending`: poll with backoff or use webhooks. RPs act on `decision` and
+        `band`; `confidence` is for analytics. Raw sub-scores are in `getEvidence`.
+        Rate limited per key: 3,000 GET requests per minute.
+      responses:
+        '200':
+          description: The session's result.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+              example:
+                session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                decision: pass
+                band: A
+                confidence: 0.97
+                reason_codes: [ACTIONS_OK, PAD_OK, NONCE_OK, TIMING_OK]
+                reasons_detail:
+                  - code: NONCE_WEAK
+                    severity: info
+                    text: illumination response weak; outdoor session
+                challenges:
+                  - id: a1
+                    kind: head_turn
+                    result: pass
+                    attempts: 1
+                    latency_ms: 640
+                  - id: a2
+                    kind: fingers
+                    result: pass
+                    attempts: 2
+                    latency_ms: 910
+                quality:
+                  lighting: ok
+                  face_size: ok
+                  network_rung_median: 2
+                  received_fps_median: 14.6
+                device:
+                  platform: android
+                  attested: true
+                  attestation_verdict: MEETS_DEVICE_INTEGRITY
+                models:
+                  pad_trunk: dinov2b-reg-pad@1.3.0+d41d8
+                  digital_head: digital-head@1.1.0+9e107
+                  fusion: fusion@0.9.2
+                  landmarks: mediapipe-face-0.10.31
+                policy_version: 12
+                verdict_at: '2026-09-22T10:01:12Z'
+                evidence:
+                  audit_frames: 2
+                  clip: false
+                  expires_at: '2026-09-29T10:01:12Z'
+                metadata:
+                  flow: onboarding
+                  attempt: 1
+                result_token: eyJhbGciOiJFUzI1NiIsImtpZCI6ImNwLTIwMjYtMDkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FwaS56YWthZGkuZGV2IiwiYXVkIjoiNGYxYzJkM2UtNWE2Yi00YzdkLThlOWYtMGExYjJjM2Q0ZTVmIiwic3ViIjoic2VzXzAxSjhaUTRYS0QzTTdWMk45QjZUNVI4VzFIIiwianRpIjoiUTFsdnRwb0RaWGRlUTVWdTJJY1AtUSIsImlhdCI6MTc5MDA3MTI3MiwiZXhwIjoxNzkwMDc0ODcyLCJkZWNpc2lvbiI6InBhc3MiLCJiYW5kIjoiQSIsImNvbmZpZGVuY2UiOjAuOTcsInJlYXNvbl9jb2RlcyI6WyJBQ1RJT05TX09LIiwiUEFEX09LIiwiTk9OQ0VfT0siLCJUSU1JTkdfT0siXSwidXNlcl9yZWZfaGFzaCI6ImY3NWRjNmI0OThjZDg4NjJlOWRlODhkY2QzMTY1ZGZkMmE5YjY1YjQ3MTIwNTA3YmY0YTI4YWI4ZDA0OGRkYjAiLCJwb2xpY3lfdmVyc2lvbiI6MTIsIm1vZGVsc19oYXNoIjoiMjBjMDkyMGY2OWQ3ZTJlYTYyOThhNDc4NTIyNTkwODQ2NmFhY2Y3YTE3MzJjYzFhNDQwNGFhNzRiMGNmNmYwYSJ9.fA5Log6gG6Dz0fepyH8WTDE5ftLkF-xC1a6QLPZH2wBnyOOlWxZnb1N44Mb83a5pdhcraBLpa96Y1e3dfevsLA
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/ResultNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/sessions/{id}/evidence:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getEvidence
+      tags: [Results]
+      summary: Get a session's evidence
+      description: >-
+        Scope `evidence:read`. Returns the sub-scores, forensic scalars, timing
+        distributions, the per-challenge score tables, and signed URLs valid for 15
+        minutes for the audit frames and the clip if one was kept. Every call is
+        written to the audit log with the caller's key id. Rate limited per key: 3,000
+        GET requests per minute.
+      responses:
+        '200':
+          description: The session's evidence.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEvidence'
+              example:
+                session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                scores:
+                  pad_ensemble: 0.991
+                  nonce_reader: 0.62
+                  probe_classifier: 0.97
+                forensics:
+                  qp_mean: 27.4
+                  idr_interval_ms: 2003
+                  pts_rx_correlation: 0.93
+                timing:
+                  action_latency_ms:
+                    p50: 775
+                    max: 910
+                  clock_drift_ms_per_s: 0.4
+                challenges:
+                  - idx: 0
+                    id: a1
+                    kind: head_turn
+                    params:
+                      direction: user_left
+                      min_deg: 20
+                      hold_ms: 200
+                    result: pass
+                    attempts: 1
+                    latency_ms: 640
+                    scores:
+                      geometry: 0.98
+                      pad_ensemble: 0.993
+                  - idx: 1
+                    id: a2
+                    kind: fingers
+                    params:
+                      count: 3
+                      hand: either
+                      placement: beside_face
+                    result: pass
+                    attempts: 2
+                    latency_ms: 910
+                    scores:
+                      geometry: 0.95
+                      pad_ensemble: 0.989
+                audit_frames:
+                  - url: https://objects-afs1.zakadi.dev/evidence/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/frame-1?expires=1790073000&signature=7d1c0e5a9b3f
+                    expires_at: '2026-09-22T10:30:00Z'
+                  - url: https://objects-afs1.zakadi.dev/evidence/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/frame-2?expires=1790073000&signature=2b8e4f6a1c9d
+                    expires_at: '2026-09-22T10:30:00Z'
+                clip: null
+                expires_at: '2026-09-29T10:01:12Z'
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/SessionNotFoundLimited'
+        '410':
+          $ref: '#/components/responses/EvidenceExpired'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/subjects/purge:
+    parameters:
+      - $ref: '#/components/parameters/ZakadiSignature'
+    post:
+      operationId: purgeSubject
+      tags: [Results]
+      summary: Purge everything held for an end user
+      description: >-
+        Data-subject deletion: purges everything held for `user_ref` across sessions.
+        `getJob` reports when the job completes.
+      requestBody:
+        description: The end user whose data is purged.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectPurge'
+            example:
+              user_ref: cust-88213
+      responses:
+        '202':
+          description: The purge job was accepted.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+              example:
+                job_id: job_01J8ZQ9C2F6G4H7J8K9M0N1P2Q
+                kind: subject_purge
+                status: pending
+                created_at: '2026-09-22T13:00:00Z'
+                completed_at: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/JobIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getJob
+      tags: [Results]
+      summary: Get a job
+      description: >-
+        Reports the state of a job `purgeSubject` started. Rate limited per key: 3,000
+        GET requests per minute.
+      responses:
+        '200':
+          description: The job.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+              example:
+                job_id: job_01J8ZQ9C2F6G4H7J8K9M0N1P2Q
+                kind: subject_purge
+                status: succeeded
+                created_at: '2026-09-22T13:00:00Z'
+                completed_at: '2026-09-22T13:00:41Z'
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/JobNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/webhooks:
+    parameters:
+      - $ref: '#/components/parameters/ZakadiSignature'
+    post:
+      operationId: createWebhook
+      tags: [Webhooks]
+      summary: Create a webhook endpoint
+      description: >-
+        Registers an endpoint for session events; a tenant has at most 5. The same
+        `Idempotency-Key` with the same body returns the original response for 24 h;
+        with a different body the answer is 422 `idempotency_conflict`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        description: The endpoint to register.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreate'
+            example:
+              url: https://rp.example/liveness/hook
+              events: [zakadi.session.completed, zakadi.session.aborted, zakadi.session.expired]
+              secret: 5scJWszxU8haiavas08P_6vYYYT1bt472Ucz0kWD
+              active: true
+      responses:
+        '201':
+          description: The endpoint was created.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+              example:
+                webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                url: https://rp.example/liveness/hook
+                events: [zakadi.session.completed, zakadi.session.aborted, zakadi.session.expired]
+                secret_ref: wh_sec_01
+                active: true
+                created_at: '2026-09-21T16:40:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/WebhookLimit'
+        '422':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      operationId: listWebhooks
+      tags: [Webhooks]
+      summary: List webhook endpoints
+      description: >-
+        Lists the tenant's endpoints, at most 5. Rate limited per key: 3,000 GET
+        requests per minute.
+      responses:
+        '200':
+          description: The tenant's endpoints.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookList'
+              example:
+                data:
+                  - webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                    url: https://rp.example/liveness/hook
+                    events: [zakadi.session.completed, zakadi.session.aborted, zakadi.session.expired]
+                    secret_ref: wh_sec_01
+                    active: true
+                    created_at: '2026-09-21T16:40:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/webhooks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WebhookIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getWebhook
+      tags: [Webhooks]
+      summary: Get a webhook endpoint
+      description: >-
+        Returns one endpoint; the secret is never returned. Rate limited per key: 3,000
+        GET requests per minute.
+      responses:
+        '200':
+          description: The endpoint.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+              example:
+                webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                url: https://rp.example/liveness/hook
+                events: [zakadi.session.completed, zakadi.session.aborted, zakadi.session.expired]
+                secret_ref: wh_sec_01
+                active: true
+                created_at: '2026-09-21T16:40:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/WebhookNotFoundLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+    put:
+      operationId: updateWebhook
+      tags: [Webhooks]
+      summary: Replace a webhook endpoint
+      description: >-
+        Replaces the endpoint's `url`, `events` and `active`; a `secret`, when given,
+        replaces the signing secret.
+      requestBody:
+        description: The endpoint's new settings.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookUpdate'
+            example:
+              url: https://rp.example/liveness/hook
+              events: [zakadi.session.completed]
+              active: true
+      responses:
+        '200':
+          description: The endpoint as replaced.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+              example:
+                webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                url: https://rp.example/liveness/hook
+                events: [zakadi.session.completed]
+                secret_ref: wh_sec_01
+                active: true
+                created_at: '2026-09-21T16:40:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      summary: Delete a webhook endpoint
+      description: Deletes the endpoint; no further deliveries are made to it.
+      responses:
+        '204':
+          description: The endpoint was deleted.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/webhooks/{id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/WebhookIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: listWebhookDeliveries
+      tags: [Webhooks]
+      summary: List delivery attempts
+      description: >-
+        Lists the endpoint's delivery attempts with their status codes, newest first,
+        for debugging. Rate limited per key: 3,000 GET requests per minute.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of delivery attempts, newest first.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryPage'
+              example:
+                data:
+                  - webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                    event_id: evt_01J8ZQ6N2P4R6T8V0X2Z4B6D8F
+                    attempt: 2
+                    status: 200
+                    error: null
+                    at: '2026-09-22T10:02:14Z'
+                  - webhook_id: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+                    event_id: evt_01J8ZQ6N2P4R6T8V0X2Z4B6D8F
+                    attempt: 1
+                    status: null
+                    error: no response within 10 s
+                    at: '2026-09-22T10:01:14Z'
+                next_cursor: null
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '404':
+          $ref: '#/components/responses/WebhookNotFoundLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/tenants/{id}/policy:
+    parameters:
+      - $ref: '#/components/parameters/TenantIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getPolicy
+      tags: [Tenants]
+      summary: Get the tenant policy
+      description: >-
+        Scope `policy:write`. Returns the tenant's current policy version. Rate limited
+        per key: 3,000 GET requests per minute.
+      responses:
+        '200':
+          description: The current policy.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+              example:
+                version: 12
+                actions:
+                  min: 2
+                  max: 3
+                  pool: [head_turn, distance, fingers, digits, blink, expression]
+                  step_up_pool: [hand_over_face, look_profile]
+                  require_geometry: true
+                  require_high_entropy: true
+                assurance:
+                  accept_bands: [A, B]
+                  web_allowed: true
+                  attestation_required: false
+                thresholds:
+                  profile: balanced
+                attempts:
+                  per_action: 3
+                  restarts: 2
+                  sessions_per_user_ref_per_day: 10
+                  sessions_per_face_per_day: 10
+                step_up:
+                  enabled: true
+                  human_handoff: false
+                  handoff_url: null
+                languages: [en-NG, fr-CI, ha-NG]
+                retention:
+                  results_days: 365
+                  evidence_days_default: 7
+                  evidence_days_max: 30
+                  evidence_clip_allowed: false
+                  embeddings_days: 30
+                dedupe:
+                  enabled: true
+                  cross_session_face_match: true
+                attestation:
+                  play_integrity:
+                    cloud_project_number: '1234567890'
+                    verify: google_api
+                    credentials_ref: sec_pi_01
+                  app_attest:
+                    team_id: ABCDE12345
+                    bundle_id: com.rp.app
+                residency:
+                  ingest_regions: [eu-west-2, af-south-1]
+                  gpu_regions: [af-south-1]
+                  in_country_only: false
+                ui:
+                  character: default
+                  brand:
+                    primary: '#0A5'
+                    logo_url: null
+                  badge_text: null
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+    put:
+      operationId: updatePolicy
+      tags: [Tenants]
+      summary: Create a new policy version
+      description: >-
+        Scope `policy:write`. Every PUT creates a new immutable version, returned with
+        its `version`; a `version` in the body is ignored. Sessions pin the version
+        current at their creation.
+      requestBody:
+        description: Every setting of the new version.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicySettings'
+            example:
+              actions:
+                min: 2
+                max: 3
+                pool: [head_turn, distance, fingers, digits, blink, expression]
+                step_up_pool: [hand_over_face, look_profile]
+                require_geometry: true
+                require_high_entropy: true
+              assurance:
+                accept_bands: [A, B]
+                web_allowed: true
+                attestation_required: false
+              thresholds:
+                profile: strict
+              attempts:
+                per_action: 3
+                restarts: 2
+                sessions_per_user_ref_per_day: 10
+                sessions_per_face_per_day: 10
+              step_up:
+                enabled: true
+                human_handoff: false
+                handoff_url: null
+              languages: [en-NG, fr-CI, ha-NG]
+              retention:
+                results_days: 365
+                evidence_days_default: 7
+                evidence_days_max: 30
+                evidence_clip_allowed: false
+                embeddings_days: 30
+              dedupe:
+                enabled: true
+                cross_session_face_match: true
+              attestation:
+                play_integrity:
+                  cloud_project_number: '1234567890'
+                  verify: google_api
+                  credentials_ref: sec_pi_01
+                app_attest:
+                  team_id: ABCDE12345
+                  bundle_id: com.rp.app
+              residency:
+                ingest_regions: [eu-west-2, af-south-1]
+                gpu_regions: [af-south-1]
+                in_country_only: false
+              ui:
+                character: default
+                brand:
+                  primary: '#0A5'
+                  logo_url: null
+                badge_text: null
+      responses:
+        '200':
+          description: The new policy version.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+              example:
+                version: 13
+                actions:
+                  min: 2
+                  max: 3
+                  pool: [head_turn, distance, fingers, digits, blink, expression]
+                  step_up_pool: [hand_over_face, look_profile]
+                  require_geometry: true
+                  require_high_entropy: true
+                assurance:
+                  accept_bands: [A, B]
+                  web_allowed: true
+                  attestation_required: false
+                thresholds:
+                  profile: strict
+                attempts:
+                  per_action: 3
+                  restarts: 2
+                  sessions_per_user_ref_per_day: 10
+                  sessions_per_face_per_day: 10
+                step_up:
+                  enabled: true
+                  human_handoff: false
+                  handoff_url: null
+                languages: [en-NG, fr-CI, ha-NG]
+                retention:
+                  results_days: 365
+                  evidence_days_default: 7
+                  evidence_days_max: 30
+                  evidence_clip_allowed: false
+                  embeddings_days: 30
+                dedupe:
+                  enabled: true
+                  cross_session_face_match: true
+                attestation:
+                  play_integrity:
+                    cloud_project_number: '1234567890'
+                    verify: google_api
+                    credentials_ref: sec_pi_01
+                  app_attest:
+                    team_id: ABCDE12345
+                    bundle_id: com.rp.app
+                residency:
+                  ingest_regions: [eu-west-2, af-south-1]
+                  gpu_regions: [af-south-1]
+                  in_country_only: false
+                ui:
+                  character: default
+                  brand:
+                    primary: '#0A5'
+                    logo_url: null
+                  badge_text: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/tenants/{id}/usage:
+    parameters:
+      - $ref: '#/components/parameters/TenantIdPath'
+      - $ref: '#/components/parameters/ZakadiSignature'
+    get:
+      operationId: getUsage
+      tags: [Tenants]
+      summary: Get usage
+      description: >-
+        Counts the tenant's sessions by status, band and channel, per UTC day, from
+        `from` to `to` inclusive. Rate limited per key: 3,000 GET requests per minute.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: The first UTC day counted.
+          schema:
+            type: string
+            format: date
+          example: '2026-09-21'
+        - name: to
+          in: query
+          required: true
+          description: The last UTC day counted.
+          schema:
+            type: string
+            format: date
+          example: '2026-09-22'
+      responses:
+        '200':
+          description: Session counts per day, status, band and channel.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usage'
+              example:
+                from: '2026-09-21'
+                to: '2026-09-22'
+                data:
+                  - day: '2026-09-21'
+                    channel: android
+                    band: A
+                    status: passed
+                    count: 1204
+                  - day: '2026-09-21'
+                    channel: android
+                    band: A
+                    status: failed
+                    count: 37
+                  - day: '2026-09-21'
+                    channel: web
+                    band: null
+                    status: expired
+                    count: 12
+                  - day: '2026-09-22'
+                    channel: android
+                    band: A
+                    status: passed
+                    count: 1311
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '401':
+          $ref: '#/components/responses/UnauthorizedLimited'
+        '403':
+          $ref: '#/components/responses/ForbiddenLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/sdk/config:
+    get:
+      operationId: getSdkConfig
+      tags: [SDK]
+      summary: Get the SDK configuration
+      description: >-
+        Public, no key; cached 5 minutes. The SDK calls it at `start()`, refuses to
+        start below `min_version` or when `kill_switch` is true, and fails open after
+        2 s (D10). `device_quirks` entries match when every key present matches, and
+        their `caps` cap the capture and encoder configuration (D38). Responds with
+        `Access-Control-Allow-Origin: *` and no credentials (D35).
+      security: []
+      parameters:
+        - name: platform
+          in: query
+          required: true
+          description: The SDK's platform.
+          schema:
+            $ref: '#/components/schemas/Channel'
+          example: android
+        - name: version
+          in: query
+          required: true
+          description: The SDK's version.
+          schema:
+            $ref: '#/components/schemas/SemVer'
+          example: 1.4.2
+        - name: wrapper
+          in: query
+          required: false
+          description: The wrapper package and its version, `<name>@<version>`, when a wrapper embeds the SDK.
+          schema:
+            type: string
+            pattern: '^.+@[0-9]+\.[0-9]+\.[0-9]+'
+          example: zakadi_sdk@1.0.0
+      responses:
+        '200':
+          description: The configuration for this platform, version and wrapper.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              description: Cached for 5 minutes.
+              required: true
+              schema:
+                type: string
+              example: public, max-age=300
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SdkConfig'
+              example:
+                min_version: 1.2.0
+                latest_version: 1.4.2
+                kill_switch: false
+                wrapper_min_version:
+                  '@zakadi/react': 1.0.0
+                  '@zakadi/angular': 1.0.0
+                  zakadi_sdk: 1.0.0
+                  '@zakadi/react-native': 1.0.0
+                message: null
+                protocol: [zakadi.v1]
+                prompt_pack_cdn: https://cdn.zakadi.dev/packs/
+                probe:
+                  count: 8
+                  bytes: 8192
+                ladder_version: 3
+                device_quirks:
+                  - match:
+                      platform: android
+                      model_prefix: TECNO KI5
+                    caps:
+                      max_fps: 12
+                      prefer_software_encoder: false
+                  - match:
+                      platform: web
+                      browser: Chrome
+                      browser_major_max: 110
+                    caps:
+                      profile: mediarecorder
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/telemetry:
+    post:
+      operationId: sendTelemetry
+      tags: [SDK]
+      summary: Send SDK telemetry
+      description: >-
+        Public, no key; rate limited per session id and IP. At most 100 events and
+        32 KB per call. Events are validated against the telemetry schema, and anything
+        resembling media, tokens or landmark arrays is rejected. The body is JSON sent
+        as `application/json`, or as `text/plain` so that `navigator.sendBeacon` can
+        send it on page hide (D35). Responds with `Access-Control-Allow-Origin: *` and
+        no credentials.
+      security: []
+      requestBody:
+        description: The events, as JSON or as the same JSON sent as `text/plain`.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryBatch'
+            example:
+              session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+              sdk:
+                platform: android
+                name: dev.zakadi.sdk
+                version: 1.4.2
+                os: Android 13
+                device: TECNO KI5
+              events:
+                - name: connect
+                  t_ms: 1840
+                  fields:
+                    region: af-south-1
+                    ms: 212
+                - name: probe
+                  t_ms: 3920
+                  fields:
+                    goodput_kbps: 820
+                    rtt_ms: 190
+                    start_rung: 2
+          text/plain:
+            schema:
+              type: string
+              description: A `TelemetryBatch` serialised as JSON.
+              contentMediaType: application/json
+              contentSchema:
+                $ref: '#/components/schemas/TelemetryBatch'
+            example: '{"session_id":"ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H","sdk":{"platform":"web","name":"@zakadi/web-core","version":"1.4.2","os":"Android 13","browser":"Chrome 128"},"events":[{"name":"end","t_ms":41250,"fields":{"outcome":"completed","reason":"ok","duration_ms":37120}}]}'
+      responses:
+        '204':
+          description: The events were accepted.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+        '400':
+          $ref: '#/components/responses/BadRequestLimited'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalErrorLimited'
+
+  /v1/health:
+    get:
+      operationId: getHealth
+      tags: [Health]
+      summary: Control plane liveness
+      description: Public, no key. Answers while the control plane is alive.
+      security: []
+      responses:
+        '200':
+          description: The control plane is alive.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: ok
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/health/ingest:
+    get:
+      operationId: getIngestHealth
+      tags: [Health]
+      summary: Ingest health per region
+      description: >-
+        Public, no key; cached 10 s. Per-region ingest health and current admission
+        headroom, which SDKs use only as a region ordering hint.
+      security: []
+      responses:
+        '200':
+          description: Ingest health per region.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              description: Cached for 10 seconds.
+              required: true
+              schema:
+                type: string
+              example: public, max-age=10
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestHealth'
+              example:
+                regions:
+                  - region: af-south-1
+                    healthy: true
+                    headroom: 0.42
+                  - region: eu-west-2
+                    healthy: true
+                    headroom: 0.77
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      tags: [Keys]
+      summary: Get the JWKS
+      description: >-
+        Public, no key. The ES256 public keys, with `kid`, that verify `client_token`
+        and `result_token`. Keys rotate every 90 days, and the previous key stays
+        published for 30 days after a rotation. Clients never send the API key here.
+      security: []
+      responses:
+        '200':
+          description: The key set.
+          headers:
+            Zakadi-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+              example:
+                keys:
+                  - kty: EC
+                    crv: P-256
+                    kid: cp-2026-09
+                    use: sig
+                    alg: ES256
+                    x: x8aW7uvxnW7tgIIzZ91pu4Gae-kF8ugUK9iDhwx7boM
+                    y: YZK8ihiWvX536ipCq13f2156N6vjfxer5s2_2iN6uiY
+                  - kty: EC
+                    crv: P-256
+                    kid: cp-2026-06
+                    use: sig
+                    alg: ES256
+                    x: CPGe7Qm9V-upWx97AFj1JMtTd7al-DwXpe8bKuPRm54
+                    y: dOQsaWOassglbKfXnU0Xy_f5GwbgQvj3Lf2TluRNrKA
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+webhooks:
+  zakadi.session.completed:
+    post:
+      tags: [Webhooks]
+      summary: A session has its verdict
+      description: >-
+        Sent to every active endpoint subscribed to the event. The receiver checks
+        `Zakadi-Webhook-Signature` over `Zakadi-Webhook-Id`, `Zakadi-Webhook-Timestamp`
+        and the raw body, and rejects a timestamp older than 300 s. Deliveries are at
+        least once and idempotent by `id`. A verdict re-run after a timeout sends the
+        event again with `data.superseded` true.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEventId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+            example:
+              id: evt_01J8ZQ6N2P4R6T8V0X2Z4B6D8F
+              type: zakadi.session.completed
+              created_at: '2026-09-22T10:01:13Z'
+              data:
+                session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+                decision: pass
+                band: A
+                confidence: 0.97
+                reason_codes: [ACTIONS_OK, PAD_OK, NONCE_OK, TIMING_OK]
+                reasons_detail:
+                  - code: NONCE_WEAK
+                    severity: info
+                    text: illumination response weak; outdoor session
+                challenges:
+                  - id: a1
+                    kind: head_turn
+                    result: pass
+                    attempts: 1
+                    latency_ms: 640
+                  - id: a2
+                    kind: fingers
+                    result: pass
+                    attempts: 2
+                    latency_ms: 910
+                quality:
+                  lighting: ok
+                  face_size: ok
+                  network_rung_median: 2
+                  received_fps_median: 14.6
+                device:
+                  platform: android
+                  attested: true
+                  attestation_verdict: MEETS_DEVICE_INTEGRITY
+                models:
+                  pad_trunk: dinov2b-reg-pad@1.3.0+d41d8
+                  digital_head: digital-head@1.1.0+9e107
+                  fusion: fusion@0.9.2
+                  landmarks: mediapipe-face-0.10.31
+                policy_version: 12
+                verdict_at: '2026-09-22T10:01:12Z'
+                evidence:
+                  audit_frames: 2
+                  clip: false
+                  expires_at: '2026-09-29T10:01:12Z'
+                metadata:
+                  flow: onboarding
+                  attempt: 1
+              result_token: eyJhbGciOiJFUzI1NiIsImtpZCI6ImNwLTIwMjYtMDkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FwaS56YWthZGkuZGV2IiwiYXVkIjoiNGYxYzJkM2UtNWE2Yi00YzdkLThlOWYtMGExYjJjM2Q0ZTVmIiwic3ViIjoic2VzXzAxSjhaUTRYS0QzTTdWMk45QjZUNVI4VzFIIiwianRpIjoiUTFsdnRwb0RaWGRlUTVWdTJJY1AtUSIsImlhdCI6MTc5MDA3MTI3MiwiZXhwIjoxNzkwMDc0ODcyLCJkZWNpc2lvbiI6InBhc3MiLCJiYW5kIjoiQSIsImNvbmZpZGVuY2UiOjAuOTcsInJlYXNvbl9jb2RlcyI6WyJBQ1RJT05TX09LIiwiUEFEX09LIiwiTk9OQ0VfT0siLCJUSU1JTkdfT0siXSwidXNlcl9yZWZfaGFzaCI6ImY3NWRjNmI0OThjZDg4NjJlOWRlODhkY2QzMTY1ZGZkMmE5YjY1YjQ3MTIwNTA3YmY0YTI4YWI4ZDA0OGRkYjAiLCJwb2xpY3lfdmVyc2lvbiI6MTIsIm1vZGVsc19oYXNoIjoiMjBjMDkyMGY2OWQ3ZTJlYTYyOThhNDc4NTIyNTkwODQ2NmFhY2Y3YTE3MzJjYzFhNDQwNGFhNzRiMGNmNmYwYSJ9.fA5Log6gG6Dz0fepyH8WTDE5ftLkF-xC1a6QLPZH2wBnyOOlWxZnb1N44Mb83a5pdhcraBLpa96Y1e3dfevsLA
+      responses:
+        '2XX':
+          $ref: '#/components/responses/DeliveryAccepted'
+  zakadi.session.aborted:
+    post:
+      tags: [Webhooks]
+      summary: A session was aborted
+      description: >-
+        Sent when a session ends with outcome `aborted`, by the user, the RP
+        (`cancelSession`) or the network. Signed, checked and retried as
+        `zakadi.session.completed`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEventId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+            example:
+              id: evt_01J8ZQ7D5F7H9K1N3Q5S7V9X1Z
+              type: zakadi.session.aborted
+              created_at: '2026-09-22T11:15:40Z'
+              data:
+                session_id: ses_01J8ZQ7A3C5E7G9J1M3P5R7T9V
+                decision: inconclusive
+                band: A
+                confidence: 0.41
+                reason_codes: [SESSION_ABORTED]
+                reasons_detail:
+                  - code: SESSION_ABORTED
+                    severity: info
+                    text: cancelled by the relying party during the second action
+                challenges:
+                  - id: a1
+                    kind: blink
+                    result: pass
+                    attempts: 1
+                    latency_ms: 380
+                quality:
+                  lighting: low
+                  face_size: ok
+                  network_rung_median: 3
+                  received_fps_median: 11.8
+                device:
+                  platform: android
+                  attested: true
+                  attestation_verdict: MEETS_DEVICE_INTEGRITY
+                models:
+                  pad_trunk: dinov2b-reg-pad@1.3.0+d41d8
+                  digital_head: digital-head@1.1.0+9e107
+                  fusion: fusion@0.9.2
+                  landmarks: mediapipe-face-0.10.31
+                policy_version: 12
+                verdict_at: '2026-09-22T11:15:39Z'
+                evidence:
+                  audit_frames: 1
+                  clip: false
+                  expires_at: '2026-09-29T11:15:39Z'
+                metadata:
+                  flow: onboarding
+                  attempt: 2
+              result_token: eyJhbGciOiJFUzI1NiIsImtpZCI6ImNwLTIwMjYtMDkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FwaS56YWthZGkuZGV2IiwiYXVkIjoiNGYxYzJkM2UtNWE2Yi00YzdkLThlOWYtMGExYjJjM2Q0ZTVmIiwic3ViIjoic2VzXzAxSjhaUTdBM0M1RTdHOUoxTTNQNVI3VDlWIiwianRpIjoiX2FLTXdzWl9EOEs5Z1FjZUVNaXNJZyIsImlhdCI6MTc5MDA3NTczOSwiZXhwIjoxNzkwMDc5MzM5LCJkZWNpc2lvbiI6ImluY29uY2x1c2l2ZSIsImJhbmQiOiJBIiwiY29uZmlkZW5jZSI6MC40MSwicmVhc29uX2NvZGVzIjpbIlNFU1NJT05fQUJPUlRFRCJdLCJ1c2VyX3JlZl9oYXNoIjoiZjcwMzZlNWZkMDU0NWZiN2MxZDAzNmI0MDA3NDU3OTE4MDNhZmZkNjQwZjFjZTFiNzgwOGE5YTJlMTk1NWRlYiIsInBvbGljeV92ZXJzaW9uIjoxMiwibW9kZWxzX2hhc2giOiIyMGMwOTIwZjY5ZDdlMmVhNjI5OGE0Nzg1MjI1OTA4NDY2YWFjZjdhMTczMmNjMWE0NDA0YWE3NGIwY2Y2ZjBhIn0.vJujQF50eDzHiC7WNIhaWxfQ_edJaCsFmGZnDRTJpO19A2HkEFKFXE04Xp7QLQMfGSo4ZA7ekg7gE6DUjod2EA
+      responses:
+        '2XX':
+          $ref: '#/components/responses/DeliveryAccepted'
+  zakadi.session.expired:
+    post:
+      tags: [Webhooks]
+      summary: A session expired
+      description: >-
+        Sent when a session expires before it completes. A session that expires before
+        any media arrived has `band`, `confidence`, `quality` and `device` null. Signed,
+        checked and retried as `zakadi.session.completed`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEventId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+            example:
+              id: evt_01J8ZQ8E6G8J0M2P4R6T8W0Y2A
+              type: zakadi.session.expired
+              created_at: '2026-09-22T12:15:01Z'
+              data:
+                session_id: ses_01J8ZQ8B4D6F8H0K2N4Q6S8V0X
+                decision: inconclusive
+                band: null
+                confidence: null
+                reason_codes: [SESSION_EXPIRED]
+                reasons_detail: []
+                challenges: []
+                quality: null
+                device: null
+                models: {}
+                policy_version: 12
+                verdict_at: '2026-09-22T12:15:00Z'
+                evidence:
+                  audit_frames: 0
+                  clip: false
+                  expires_at: null
+                metadata:
+                  flow: onboarding
+                  attempt: 1
+              result_token: eyJhbGciOiJFUzI1NiIsImtpZCI6ImNwLTIwMjYtMDkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FwaS56YWthZGkuZGV2IiwiYXVkIjoiNGYxYzJkM2UtNWE2Yi00YzdkLThlOWYtMGExYjJjM2Q0ZTVmIiwic3ViIjoic2VzXzAxSjhaUThCNEQ2RjhIMEsyTjRRNlM4VjBYIiwianRpIjoiTmtCMHBzSWVZLXR0SUFjMnBfUXhnQSIsImlhdCI6MTc5MDA3OTMwMCwiZXhwIjoxNzkwMDgyOTAwLCJkZWNpc2lvbiI6ImluY29uY2x1c2l2ZSIsImJhbmQiOm51bGwsImNvbmZpZGVuY2UiOm51bGwsInJlYXNvbl9jb2RlcyI6WyJTRVNTSU9OX0VYUElSRUQiXSwidXNlcl9yZWZfaGFzaCI6ImViZGIwYTFmMTgzODQzNzY5ZWFkNTI5OWRlZjhiZDJlNzlhMzkxOGRmN2Y5MGM1ODU4NzA4MzBjNTkxYjExY2EiLCJwb2xpY3lfdmVyc2lvbiI6MTIsIm1vZGVsc19oYXNoIjoiNDQxMzZmYTM1NWIzNjc4YTExNDZhZDE2ZjdlODY0OWU5NGZiNGZjMjFmZTc3ZTgzMTBjMDYwZjYxY2FhZmY4YSJ9.y6LmQELjZyDnrYj3l-kJGGOL2hZbu1FcD1yAGDebX4xgGP7SBwfycmngDezPi2Qr8dj63b21-MmHlerNMlhOwQ
+      responses:
+        '2XX':
+          $ref: '#/components/responses/DeliveryAccepted'
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: >-
+        An API key, `zk_<env>_<32 random base62>`, created per tenant with scopes
+        (`sessions:write`, `sessions:read`, `results:read`, `evidence:read`,
+        `policy:write`, `webhooks:write`), an optional IP allowlist and an expiry; two
+        keys per tenant are active at once for rotation.
+
+  parameters:
+    SessionIdPath:
+      name: id
+      in: path
+      required: true
+      description: The session id `createSession` returned.
+      schema:
+        $ref: '#/components/schemas/SessionId'
+      example: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+    JobIdPath:
+      name: id
+      in: path
+      required: true
+      description: The job id `purgeSubject` returned.
+      schema:
+        $ref: '#/components/schemas/JobId'
+      example: job_01J8ZQ9C2F6G4H7J8K9M0N1P2Q
+    WebhookIdPath:
+      name: id
+      in: path
+      required: true
+      description: The endpoint's `webhook_id`.
+      schema:
+        type: string
+        format: uuid
+      example: 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d
+    TenantIdPath:
+      name: id
+      in: path
+      required: true
+      description: The caller's tenant id; another tenant's id is refused with 403 `forbidden_scope`.
+      schema:
+        type: string
+        format: uuid
+      example: 4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        At most 128 characters. The same key with the same body returns the original
+        response for 24 h; with a different body, 422 `idempotency_conflict`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: onb-88213-1
+    ZakadiSignature:
+      name: Zakadi-Signature
+      in: header
+      required: false
+      description: >-
+        Optional request signing for high-assurance tenants:
+        `t=<unix>,v1=<hex hmac-sha256(secret, t + "." + method + "." + path + "." + sha256(body))>`,
+        refused when `t` is more than 300 s from server time.
+      schema:
+        type: string
+        pattern: '^t=[0-9]+,v1=[0-9a-f]{64}$'
+      example: t=1790071200,v1=b9efcd66c3496bdcf50c604f07b1112b006fd8e3d7b71551a492ec60360b686e
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: The `next_cursor` of the previous page; absent for the first page.
+      schema:
+        type: string
+        minLength: 1
+      example: c2VzXzAxSjhaUTRYS0QzTTdWMk45QjZUNVI4VzFI
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Items per page, at most 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+    WebhookEventId:
+      name: Zakadi-Webhook-Id
+      in: header
+      required: true
+      description: >-
+        The event `id`, equal to the body's `id`; this header value is the `id` the
+        signature covers (D71).
+      schema:
+        $ref: '#/components/schemas/EventId'
+      example: evt_01J8ZQ6N2P4R6T8V0X2Z4B6D8F
+    WebhookTimestamp:
+      name: Zakadi-Webhook-Timestamp
+      in: header
+      required: true
+      description: Unix seconds when the delivery was signed; receivers reject one older than 300 s.
+      schema:
+        type: integer
+        minimum: 0
+      example: 1790071273
+    WebhookSignature:
+      name: Zakadi-Webhook-Signature
+      in: header
+      required: true
+      description: >-
+        `v1=` and the hex HMAC-SHA256 under the endpoint's secret of
+        `<Zakadi-Webhook-Id>.<Zakadi-Webhook-Timestamp>.<raw body>`.
+      schema:
+        type: string
+        pattern: '^v1=[0-9a-f]{64}$'
+      example: v1=7e8dace60c872e15c1ee8fdca6fcbe64f6e5fef8eeb2a27a920fe29fadbba0e0
+
+  headers:
+    RequestId:
+      description: Identifies the request for logs and support; a problem's `request_id` carries the same value.
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      example: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    RateLimitLimit:
+      description: >-
+        Requests allowed in the current window: per key, by default 600 per minute on
+        `createSession` (tenant-configurable) and 3,000 per minute on GET; per session
+        id and IP on `sendTelemetry`.
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+      example: 600
+    RateLimitRemaining:
+      description: Requests left in the current window.
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+      example: 599
+    RateLimitReset:
+      description: Seconds until the current window resets.
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+      example: 42
+    RateLimitLimitOptional:
+      description: >-
+        Requests allowed in the current window, present when the request's bucket was
+        read before this answer; a 400, 401, 403 or 500 answered before it carries none
+        of the RateLimit fields (D106).
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+      example: 3000
+    RateLimitRemainingOptional:
+      description: Requests left in the current window, present when the request's bucket was read before this answer (D106).
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+      example: 2999
+    RateLimitResetOptional:
+      description: Seconds until the current window resets, present when the request's bucket was read before this answer (D106).
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+      example: 1
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+      example: 42
+
+  responses:
+    DeliveryAccepted:
+      description: >-
+        The receiver's answer. Any 2xx acknowledges the delivery; any other status, or
+        no answer within 10 s, is retried after 1 min, 5 min, 30 min, 2 h, 6 h and 24 h.
+    BadRequest:
+      description: The request does not match the schema (`validation_error`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/validation_error
+            title: Validation error
+            status: 400
+            detail: 'events: at least one event is required'
+            code: validation_error
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    BadRequestLimited:
+      description: The request does not match the schema (`validation_error`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/validation_error
+            title: Validation error
+            status: 400
+            detail: 'limit: must be at most 100'
+            code: validation_error
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    Unauthorized:
+      description: The API key is missing, malformed, expired or revoked, or the request signature is wrong (`unauthorized`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/unauthorized
+            title: Unauthorized
+            status: 401
+            detail: The API key is missing, malformed, expired or revoked.
+            code: unauthorized
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    UnauthorizedLimited:
+      description: The API key is missing, malformed, expired or revoked, or the request signature is wrong (`unauthorized`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/unauthorized
+            title: Unauthorized
+            status: 401
+            detail: The API key is missing, malformed, expired or revoked.
+            code: unauthorized
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    Forbidden:
+      description: >-
+        The key lacks the scope (`forbidden_scope`), the caller's address is outside
+        the key's allowlist (`ip_not_allowed`), or the tenant is suspended
+        (`tenant_suspended`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden_scope:
+              summary: The key lacks the scope
+              value:
+                type: https://docs.zakadi.dev/errors/forbidden_scope
+                title: Forbidden scope
+                status: 403
+                detail: The API key lacks the scope this operation needs.
+                code: forbidden_scope
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            ip_not_allowed:
+              summary: The address is outside the allowlist
+              value:
+                type: https://docs.zakadi.dev/errors/ip_not_allowed
+                title: IP not allowed
+                status: 403
+                detail: The request comes from an address outside the key's allowlist.
+                code: ip_not_allowed
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            tenant_suspended:
+              summary: The tenant is suspended
+              value:
+                type: https://docs.zakadi.dev/errors/tenant_suspended
+                title: Tenant suspended
+                status: 403
+                detail: The tenant is suspended.
+                code: tenant_suspended
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    ForbiddenLimited:
+      description: >-
+        The key lacks the scope (`forbidden_scope`), the caller's address is outside
+        the key's allowlist (`ip_not_allowed`), or the tenant is suspended
+        (`tenant_suspended`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden_scope:
+              summary: The key lacks the scope
+              value:
+                type: https://docs.zakadi.dev/errors/forbidden_scope
+                title: Forbidden scope
+                status: 403
+                detail: The API key lacks the scope this operation needs.
+                code: forbidden_scope
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            ip_not_allowed:
+              summary: The address is outside the allowlist
+              value:
+                type: https://docs.zakadi.dev/errors/ip_not_allowed
+                title: IP not allowed
+                status: 403
+                detail: The request comes from an address outside the key's allowlist.
+                code: ip_not_allowed
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            tenant_suspended:
+              summary: The tenant is suspended
+              value:
+                type: https://docs.zakadi.dev/errors/tenant_suspended
+                title: Tenant suspended
+                status: 403
+                detail: The tenant is suspended.
+                code: tenant_suspended
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    SessionNotFound:
+      description: No session with this id belongs to the tenant (`session_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/session_not_found
+            title: Session not found
+            status: 404
+            detail: No session ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H belongs to this tenant.
+            code: session_not_found
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    SessionNotFoundLimited:
+      description: No session with this id belongs to the tenant (`session_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/session_not_found
+            title: Session not found
+            status: 404
+            detail: No session ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H belongs to this tenant.
+            code: session_not_found
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    ResultNotFound:
+      description: >-
+        The session has no verdict yet (`result_pending`: poll with backoff or use
+        webhooks), or no session with this id belongs to the tenant
+        (`session_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            result_pending:
+              summary: The verdict does not exist yet
+              value:
+                type: https://docs.zakadi.dev/errors/result_pending
+                title: Result pending
+                status: 404
+                detail: The session has no verdict yet; poll with backoff or use webhooks.
+                code: result_pending
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            session_not_found:
+              summary: No such session
+              value:
+                type: https://docs.zakadi.dev/errors/session_not_found
+                title: Session not found
+                status: 404
+                detail: No session ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H belongs to this tenant.
+                code: session_not_found
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    WebhookNotFound:
+      description: No webhook endpoint with this id belongs to the tenant (`webhook_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/webhook_not_found
+            title: Webhook not found
+            status: 404
+            detail: No webhook endpoint 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d belongs to this tenant.
+            code: webhook_not_found
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    WebhookNotFoundLimited:
+      description: No webhook endpoint with this id belongs to the tenant (`webhook_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/webhook_not_found
+            title: Webhook not found
+            status: 404
+            detail: No webhook endpoint 0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d belongs to this tenant.
+            code: webhook_not_found
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    JobNotFound:
+      description: No job with this id belongs to the tenant (`job_not_found`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/job_not_found
+            title: Job not found
+            status: 404
+            detail: No job job_01J8ZQ9C2F6G4H7J8K9M0N1P2Q belongs to this tenant.
+            code: job_not_found
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    SessionNotCancellable:
+      description: The session has already ended (`session_not_cancellable`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/session_not_cancellable
+            title: Session not cancellable
+            status: 409
+            detail: The session has already ended.
+            code: session_not_cancellable
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    WebhookLimit:
+      description: The tenant already has 5 endpoints (`webhook_limit`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/webhook_limit
+            title: Webhook limit reached
+            status: 409
+            detail: The tenant already has 5 webhook endpoints.
+            code: webhook_limit
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    EvidenceExpired:
+      description: The session's evidence was deleted at the end of its retention (`evidence_expired`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/evidence_expired
+            title: Evidence expired
+            status: 410
+            detail: The evidence of this session was deleted at the end of its retention.
+            code: evidence_expired
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    IdempotencyConflict:
+      description: The `Idempotency-Key` was used with a different body in the last 24 h (`idempotency_conflict`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/idempotency_conflict
+            title: Idempotency conflict
+            status: 422
+            detail: This Idempotency-Key was used with a different body in the last 24 h.
+            code: idempotency_conflict
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    UnprocessableSession:
+      description: >-
+        The `Idempotency-Key` was used with a different body in the last 24 h
+        (`idempotency_conflict`), or `policy.version` names no version of the tenant's
+        policy (`policy_version_unknown`).
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            idempotency_conflict:
+              summary: The key was used with a different body
+              value:
+                type: https://docs.zakadi.dev/errors/idempotency_conflict
+                title: Idempotency conflict
+                status: 422
+                detail: This Idempotency-Key was used with a different body in the last 24 h.
+                code: idempotency_conflict
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+            policy_version_unknown:
+              summary: The policy version does not exist
+              value:
+                type: https://docs.zakadi.dev/errors/policy_version_unknown
+                title: Policy version unknown
+                status: 422
+                detail: Policy version 99 does not exist for this tenant.
+                code: policy_version_unknown
+                request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    TooManyRequests:
+      description: The rate limit is exhausted (`rate_limited`); retry after `Retry-After` seconds.
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/rate_limited
+            title: Rate limited
+            status: 429
+            detail: The key made 600 requests to createSession in the current minute.
+            code: rate_limited
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    InternalError:
+      description: An unexpected server error (`internal_error`); retry with backoff.
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/internal_error
+            title: Internal error
+            status: 500
+            detail: An unexpected error occurred; retry with backoff.
+            code: internal_error
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+    InternalErrorLimited:
+      description: An unexpected server error (`internal_error`); retry with backoff.
+      headers:
+        Zakadi-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimitOptional'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemainingOptional'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitResetOptional'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://docs.zakadi.dev/errors/internal_error
+            title: Internal error
+            status: 500
+            detail: An unexpected error occurred; retry with backoff.
+            code: internal_error
+            request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+
+  schemas:
+    SessionId:
+      type: string
+      description: A session id, `ses_` and the session ULID (the protocol's `sessionId`).
+      pattern: '^ses_[A-Za-z0-9]+$'
+      examples: [ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H]
+    EventId:
+      type: string
+      description: A webhook event id, `evt_` and a ULID.
+      pattern: '^evt_[A-Za-z0-9]+$'
+      examples: [evt_01J8ZQ6N2P4R6T8V0X2Z4B6D8F]
+    JobId:
+      type: string
+      description: A job id, `job_` and a ULID.
+      pattern: '^job_[A-Za-z0-9]+$'
+      examples: [job_01J8ZQ9C2F6G4H7J8K9M0N1P2Q]
+    Locale:
+      type: string
+      description: A BCP 47 language tag with a region, as the prompt packs are keyed.
+      pattern: '^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$'
+      examples: [en-NG]
+    Region:
+      type: string
+      description: A deployment region.
+      pattern: '^[a-z]{2}-[a-z]+-[0-9]+$'
+      examples: [af-south-1]
+    SemVer:
+      type: string
+      description: A semantic version.
+      pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+      examples: [1.4.2]
+    Channel:
+      type: string
+      description: The platform a session runs on.
+      enum: [web, android, ios]
+    Band:
+      type: string
+      description: The assurance band.
+      enum: [A, B, C]
+    SessionStatus:
+      type: string
+      description: A session's status.
+      enum: [created, connected, in_progress, verifying, passed, failed, inconclusive, expired, aborted]
+    Decision:
+      type: string
+      description: The verdict. RPs act on `decision` and `band`.
+      enum: [pass, fail, inconclusive]
+    ChallengeKind:
+      type: string
+      description: A challenge kind (the protocol's `challengeKind`).
+      enum: [head_turn, distance, fingers, digits, blink, expression, hand_over_face, look_profile]
+    ReasonCode:
+      type: string
+      description: >-
+        A reason code of one of the families `ACTIONS_*`, `PAD_*`, `DIGITAL_*`,
+        `NONCE_*`, `TIMING_*`, `AUDIO_*`, `CAMERA_*`, `NETWORK_*`, `DEVICE_*`,
+        `DEDUPE_*`, `QUALITY_*` and `SESSION_*`; the list with severities is
+        `docs/reason-codes.md`, versioned with the fusion configuration.
+      pattern: '^(ACTIONS|PAD|DIGITAL|NONCE|TIMING|AUDIO|CAMERA|NETWORK|DEVICE|DEDUPE|QUALITY|SESSION)_[A-Z0-9_]+$'
+      examples: [ACTIONS_OK]
+    Metadata:
+      type: object
+      description: >-
+        Opaque RP data, at most 2 KB, echoed in the session, the result and the
+        webhook; an empty object when none was given.
+      examples:
+        - flow: onboarding
+          attempt: 1
+    ErrorCode:
+      type: string
+      description: A problem `code` (2.9).
+      enum:
+        - unauthorized
+        - forbidden_scope
+        - ip_not_allowed
+        - rate_limited
+        - validation_error
+        - idempotency_conflict
+        - tenant_suspended
+        - policy_version_unknown
+        - session_not_found
+        - webhook_not_found
+        - job_not_found
+        - session_not_cancellable
+        - result_pending
+        - evidence_expired
+        - webhook_limit
+        - internal_error
+    Problem:
+      type: object
+      description: >-
+        An RFC 9457 problem, served as `application/problem+json`. `type` is
+        `https://docs.zakadi.dev/errors/` and the `code`.
+      required: [type, title, status, detail, code, request_id]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Identifies the problem type.
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: This occurrence of the problem, for a person to read.
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        request_id:
+          type: string
+          description: The request's `Zakadi-Request-Id`.
+      examples:
+        - type: https://docs.zakadi.dev/errors/session_not_found
+          title: Session not found
+          status: 404
+          detail: No session ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H belongs to this tenant.
+          code: session_not_found
+          request_id: req_01J8ZQ5B7C9D1E3F5G7H9J1K3M
+
+    SessionCreate:
+      type: object
+      description: The body of `createSession`.
+      required: [user_ref, locale, channel]
+      properties:
+        user_ref:
+          type: string
+          minLength: 1
+          description: >-
+            The RP's reference for the end user; stored hashed, and the key of the
+            per-user limits and of `purgeSubject`.
+        locale:
+          $ref: '#/components/schemas/Locale'
+        channel:
+          $ref: '#/components/schemas/Channel'
+        device_correlation_id:
+          type: string
+          minLength: 1
+          description: Optional opaque device reference the RP defines; stored hashed.
+        policy:
+          $ref: '#/components/schemas/SessionPolicy'
+        ingest_hint:
+          $ref: '#/components/schemas/IngestHint'
+        callback:
+          $ref: '#/components/schemas/Callback'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        evidence:
+          $ref: '#/components/schemas/EvidenceRequest'
+    SessionPolicy:
+      type: object
+      description: >-
+        The tenant policy version the session pins, the current one when absent, and
+        per-session overrides.
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: A version of the tenant's policy.
+        overrides:
+          type: object
+          description: Per-session overrides of the pinned policy.
+          properties:
+            min_actions:
+              type: integer
+              minimum: 1
+              description: The fewest actions the session asks for.
+            languages:
+              type: array
+              description: The languages the end user may choose from.
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/Locale'
+      examples:
+        - version: 12
+          overrides:
+            min_actions: 2
+            languages: [en-NG, fr-CI]
+    IngestHint:
+      type: object
+      description: Where the end user is, to order the ingest regions.
+      properties:
+        country:
+          type: string
+          description: An ISO 3166-1 alpha-2 country code.
+          pattern: '^[A-Z]{2}$'
+      examples:
+        - country: NG
+    Callback:
+      type: object
+      description: A per-session webhook endpoint and the reference of the secret that signs its deliveries.
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The endpoint.
+        secret_ref:
+          type: string
+          minLength: 1
+          description: The `secret_ref` of a registered secret.
+      examples:
+        - url: https://rp.example/liveness/hook
+          secret_ref: wh_sec_01
+    EvidenceRequest:
+      type: object
+      description: >-
+        What evidence the session keeps. `clip` needs the tenant policy's
+        `evidence_clip_allowed`, and `retention_days` is capped by its
+        `evidence_days_max`.
+      properties:
+        audit_frames:
+          type: boolean
+          description: Keep audit frames.
+        clip:
+          type: boolean
+          description: Keep a clip.
+        retention_days:
+          type: integer
+          minimum: 1
+          description: Days the evidence is kept.
+      examples:
+        - audit_frames: true
+          clip: false
+          retention_days: 7
+
+    SessionCreated:
+      type: object
+      description: >-
+        The `createSession` response. `client_token`, `ingest`, `prompt_pack` and `ui`
+        go to the SDK unchanged, and the token is never logged.
+      required: [session_id, client_token, expires_at, ingest, prompt_pack, ui, policy_version, status]
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        client_token:
+          type: string
+          description: >-
+            An ES256 JWT for the ingest edge, valid for 300 s and usable once, with the
+            claims `iss`, `aud` (`ingest`), `sub` (the session id), `tid`, `jti`,
+            `iat`, `nbf`, `exp`, `pol`, `band_max`, `ing`, `nonce` and `lang`.
+        expires_at:
+          type: string
+          format: date-time
+          description: When `client_token` expires.
+        ingest:
+          type: array
+          description: The ingest endpoints the SDK may connect to, in order.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IngestCandidate'
+        prompt_pack:
+          $ref: '#/components/schemas/PackRef'
+        ui:
+          $ref: '#/components/schemas/SessionUi'
+        policy_version:
+          type: integer
+          minimum: 1
+          description: The policy version the session pinned.
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+    IngestCandidate:
+      type: object
+      description: An ingest endpoint for the session.
+      required: [region, url]
+      properties:
+        region:
+          $ref: '#/components/schemas/Region'
+        url:
+          type: string
+          format: uri
+          description: The session's WebSocket URL in that region.
+      examples:
+        - region: af-south-1
+          url: wss://ingest-afs1.zakadi.dev/v1/sessions/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/stream
+    PackRef:
+      type: object
+      description: A prompt pack.
+      required: [lang, version, url]
+      properties:
+        lang:
+          $ref: '#/components/schemas/Locale'
+        version:
+          type: string
+          minLength: 1
+          description: The pack version.
+        url:
+          type: string
+          format: uri
+          description: The pack's manifest.
+      examples:
+        - lang: en-NG
+          version: '2026.09.1'
+          url: https://cdn.zakadi.dev/packs/en-NG/2026.09.1/manifest.json
+    SessionUi:
+      type: object
+      description: >-
+        What the SDK shows (D11): the tenant's consent copy per language, brand tokens,
+        badge text and the alternate packs the user may switch to. Passed to the SDK
+        unchanged as `sessionUi`.
+      required: [consent_copy, brand, badge_text, packs]
+      properties:
+        consent_copy:
+          type: object
+          description: Consent copy keyed by language tag.
+          additionalProperties:
+            $ref: '#/components/schemas/ConsentCopy'
+        brand:
+          $ref: '#/components/schemas/Brand'
+        badge_text:
+          type: [string, 'null']
+          description: Text of the badge, or null for none.
+        packs:
+          type: array
+          description: The packs the user may switch to.
+          items:
+            $ref: '#/components/schemas/PackRef'
+      examples:
+        - consent_copy:
+            en-NG:
+              title: A short video check
+              body: We will ask you to follow two short prompts on camera to confirm that you are present.
+              recording_notice: Two still frames from this call are kept for 7 days for audit.
+          brand:
+            primary: '#0A5'
+            logo_url: null
+          badge_text: null
+          packs:
+            - lang: en-NG
+              version: '2026.09.1'
+              url: https://cdn.zakadi.dev/packs/en-NG/2026.09.1/manifest.json
+    ConsentCopy:
+      type: object
+      description: Consent copy in one language.
+      required: [title, body, recording_notice]
+      properties:
+        title:
+          type: string
+          description: The consent screen's title.
+        body:
+          type: string
+          description: The consent text.
+        recording_notice:
+          type: string
+          description: What is recorded and kept.
+      examples:
+        - title: A short video check
+          body: We will ask you to follow two short prompts on camera to confirm that you are present.
+          recording_notice: Two still frames from this call are kept for 7 days for audit.
+    Brand:
+      type: object
+      description: Brand tokens.
+      required: [primary, logo_url]
+      properties:
+        primary:
+          type: string
+          description: The primary colour, as a hex RGB colour.
+          pattern: '^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$'
+        logo_url:
+          type: [string, 'null']
+          format: uri
+          description: The logo, or null for none.
+      examples:
+        - primary: '#0A5'
+          logo_url: null
+
+    Session:
+      type: object
+      description: A session's status and timestamps (`getSession`).
+      required: [session_id, status, created_at, connected_at, ended_at, verdict_at, policy_version, channel, ingest_region, band, metadata]
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        created_at:
+          type: string
+          format: date-time
+          description: When the session was created.
+        connected_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the SDK connected, or null before it did.
+        ended_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the session ended, or null before it did.
+        verdict_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the verdict was written, or null before it was.
+        policy_version:
+          type: integer
+          minimum: 1
+          description: The policy version the session pinned.
+        channel:
+          $ref: '#/components/schemas/Channel'
+        ingest_region:
+          type: [string, 'null']
+          description: The ingest region the SDK connected to, or null before it connected.
+          pattern: '^[a-z]{2}-[a-z]+-[0-9]+$'
+        band:
+          type: [string, 'null']
+          description: The assurance band, or null until it is known.
+          enum: [A, B, C, null]
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    SessionPage:
+      type: object
+      description: One page of sessions, newest first.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The sessions.
+          items:
+            $ref: '#/components/schemas/Session'
+        next_cursor:
+          type: [string, 'null']
+          description: The `cursor` of the next page, or null on the last page.
+
+    ResultData:
+      type: object
+      description: >-
+        A session's verdict without its token: the `data` of a webhook delivery, and
+        with `result_token` the `getResult` response. `band`, `confidence`, `quality`
+        and `device` are null for a session that ended before any media arrived.
+      required: [session_id, decision, band, confidence, reason_codes, reasons_detail, challenges, quality, device, models, policy_version, verdict_at, evidence, metadata]
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        decision:
+          $ref: '#/components/schemas/Decision'
+        band:
+          type: [string, 'null']
+          description: The assurance band.
+          enum: [A, B, C, null]
+        confidence:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+          description: >-
+            The fusion model's calibrated probability that the session is live and
+            unmanipulated, for analytics.
+        reason_codes:
+          type: array
+          description: The reason codes behind the decision.
+          items:
+            $ref: '#/components/schemas/ReasonCode'
+        reasons_detail:
+          type: array
+          description: Reason codes with their severity and a note.
+          items:
+            $ref: '#/components/schemas/ReasonDetail'
+        challenges:
+          type: array
+          description: The challenges issued, in order.
+          items:
+            $ref: '#/components/schemas/ChallengeResult'
+        quality:
+          $ref: '#/components/schemas/Quality'
+        device:
+          $ref: '#/components/schemas/Device'
+        models:
+          $ref: '#/components/schemas/Models'
+        policy_version:
+          type: integer
+          minimum: 1
+          description: The policy version the session pinned.
+        verdict_at:
+          type: string
+          format: date-time
+          description: When the verdict was written.
+        evidence:
+          $ref: '#/components/schemas/ResultEvidence'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        superseded:
+          type: boolean
+          description: True on a verdict that replaced one written after a verdict timeout.
+    Result:
+      type: object
+      description: The `getResult` response, the verdict with its `result_token`.
+      allOf:
+        - $ref: '#/components/schemas/ResultData'
+        - type: object
+          required: [result_token]
+          properties:
+            result_token:
+              type: string
+              description: >-
+                An ES256 JWS, verified against `/.well-known/jwks.json`, over `iss`,
+                `aud` (the tenant id), `sub` (the session id), `jti`, `iat`, `exp` (`iat`
+                + 3600), `decision`, `band`, `confidence`, `reason_codes`,
+                `user_ref_hash`, `policy_version` and `models_hash`.
+    ReasonDetail:
+      type: object
+      description: A reason code with its severity and a note.
+      required: [code, severity, text]
+      properties:
+        code:
+          $ref: '#/components/schemas/ReasonCode'
+        severity:
+          type: string
+          description: The code's severity in `docs/reason-codes.md`.
+        text:
+          type: string
+          description: A note for a person to read.
+      examples:
+        - code: NONCE_WEAK
+          severity: info
+          text: illumination response weak; outdoor session
+    ChallengeResult:
+      type: object
+      description: One challenge and its outcome.
+      required: [id, kind, result, attempts, latency_ms]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: The challenge id of the protocol's `action`.
+        kind:
+          $ref: '#/components/schemas/ChallengeKind'
+        result:
+          type: string
+          description: The outcome.
+        attempts:
+          type: integer
+          minimum: 1
+          description: Attempts made.
+        latency_ms:
+          type: integer
+          minimum: 0
+          description: Response latency in milliseconds.
+      examples:
+        - id: a1
+          kind: head_turn
+          result: pass
+          attempts: 1
+          latency_ms: 640
+    Quality:
+      type: [object, 'null']
+      description: Capture and network quality, or null when no media arrived.
+      required: [lighting, face_size, network_rung_median, received_fps_median]
+      properties:
+        lighting:
+          type: string
+          description: The lighting.
+          enum: [low, ok, bright]
+        face_size:
+          type: string
+          description: The face size.
+        network_rung_median:
+          type: integer
+          minimum: 0
+          maximum: 15
+          description: The median ladder rung.
+        received_fps_median:
+          type: number
+          minimum: 0
+          description: The median received frame rate.
+      examples:
+        - lighting: ok
+          face_size: ok
+          network_rung_median: 2
+          received_fps_median: 14.6
+    Device:
+      type: [object, 'null']
+      description: The device and its attestation, or null when no media arrived.
+      required: [platform, attested, attestation_verdict]
+      properties:
+        platform:
+          $ref: '#/components/schemas/Channel'
+        attested:
+          type: boolean
+          description: Whether a platform attestation verified.
+        attestation_verdict:
+          type: [string, 'null']
+          description: The platform's attestation verdict, or null without one.
+      examples:
+        - platform: android
+          attested: true
+          attestation_verdict: MEETS_DEVICE_INTEGRITY
+    Models:
+      type: object
+      description: >-
+        The model versions behind the verdict by role (`pad_trunk`, `digital_head`,
+        `fusion`, `landmarks`); empty when no model ran.
+      additionalProperties:
+        type: string
+      examples:
+        - pad_trunk: dinov2b-reg-pad@1.3.0+d41d8
+          digital_head: digital-head@1.1.0+9e107
+          fusion: fusion@0.9.2
+          landmarks: mediapipe-face-0.10.31
+    ResultEvidence:
+      type: object
+      description: What evidence the session kept, and until when.
+      required: [audit_frames, clip, expires_at]
+      properties:
+        audit_frames:
+          type: integer
+          minimum: 0
+          description: Audit frames kept.
+        clip:
+          type: boolean
+          description: Whether a clip was kept.
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the evidence is deleted, or null when nothing was kept.
+      examples:
+        - audit_frames: 2
+          clip: false
+          expires_at: '2026-09-29T10:01:12Z'
+
+    SessionEvidence:
+      type: object
+      description: >-
+        The `getEvidence` response, from the `result_scores`, `challenges` and
+        `evidence` tables (03 3.8): sub-scores, forensic scalars, timing
+        distributions, per-challenge scores and signed URLs.
+      required: [session_id, scores, forensics, timing, challenges, audit_frames, clip, expires_at]
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        scores:
+          type: object
+          description: Calibrated sub-scores by name.
+          additionalProperties:
+            type: number
+        forensics:
+          type: object
+          description: Forensic scalars by name.
+          additionalProperties:
+            type: number
+        timing:
+          type: object
+          description: Timing distributions and clock statistics by name.
+        challenges:
+          type: array
+          description: The challenges issued, in order, with their scores.
+          items:
+            $ref: '#/components/schemas/EvidenceChallenge'
+        audit_frames:
+          type: array
+          description: Signed URLs of the audit frames.
+          items:
+            $ref: '#/components/schemas/SignedUrl'
+        clip:
+          description: A signed URL of the clip, or null when none was kept.
+          anyOf:
+            - $ref: '#/components/schemas/SignedUrl'
+            - type: 'null'
+        expires_at:
+          type: string
+          format: date-time
+          description: When the evidence is deleted.
+    EvidenceChallenge:
+      type: object
+      description: One challenge with its parameters, outcome and scores.
+      required: [idx, id, kind, params, result, attempts, latency_ms, scores]
+      properties:
+        idx:
+          type: integer
+          minimum: 0
+          description: The challenge's position in the session.
+        id:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: The challenge id of the protocol's `action`.
+        kind:
+          $ref: '#/components/schemas/ChallengeKind'
+        params:
+          type: object
+          description: The parameters the server chose (the protocol's `action.params`).
+        result:
+          type: string
+          description: The outcome.
+        attempts:
+          type: integer
+          minimum: 1
+          description: Attempts made.
+        latency_ms:
+          type: integer
+          minimum: 0
+          description: Response latency in milliseconds.
+        scores:
+          type: object
+          description: This challenge's scores by name.
+          additionalProperties:
+            type: number
+      examples:
+        - idx: 0
+          id: a1
+          kind: head_turn
+          params:
+            direction: user_left
+            min_deg: 20
+            hold_ms: 200
+          result: pass
+          attempts: 1
+          latency_ms: 640
+          scores:
+            geometry: 0.98
+    SignedUrl:
+      type: object
+      description: A short-lived signed URL, valid for 15 minutes.
+      required: [url, expires_at]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The URL.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the URL stops working.
+      examples:
+        - url: https://objects-afs1.zakadi.dev/evidence/ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H/frame-1?expires=1790073000&signature=7d1c0e5a9b3f
+          expires_at: '2026-09-22T10:30:00Z'
+
+    SubjectPurge:
+      type: object
+      description: The body of `purgeSubject`.
+      required: [user_ref]
+      properties:
+        user_ref:
+          type: string
+          minLength: 1
+          description: The end user whose data is purged across sessions.
+      examples:
+        - user_ref: cust-88213
+    Job:
+      type: object
+      description: A background job; `purgeSubject` starts one.
+      required: [job_id, kind, status, created_at, completed_at]
+      properties:
+        job_id:
+          $ref: '#/components/schemas/JobId'
+        kind:
+          type: string
+          description: What the job does.
+          enum: [subject_purge]
+        status:
+          type: string
+          description: The job's state.
+          enum: [pending, running, succeeded, failed]
+        created_at:
+          type: string
+          format: date-time
+          description: When the job was accepted.
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the job finished, or null while it runs.
+
+    WebhookEventType:
+      type: string
+      description: A webhook event type.
+      enum: [zakadi.session.completed, zakadi.session.aborted, zakadi.session.expired]
+    WebhookCreate:
+      type: object
+      description: The body of `createWebhook`.
+      required: [url, events, secret]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The endpoint.
+        events:
+          type: array
+          description: The events delivered to it.
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        secret:
+          type: string
+          minLength: 32
+          description: The signing secret, at least 32 bytes; never returned.
+        active:
+          type: boolean
+          default: true
+          description: Whether deliveries are made.
+      examples:
+        - url: https://rp.example/liveness/hook
+          events: [zakadi.session.completed]
+          secret: 5scJWszxU8haiavas08P_6vYYYT1bt472Ucz0kWD
+          active: true
+    WebhookUpdate:
+      type: object
+      description: The body of `updateWebhook`.
+      required: [url, events, active]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The endpoint.
+        events:
+          type: array
+          description: The events delivered to it.
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        active:
+          type: boolean
+          description: Whether deliveries are made.
+        secret:
+          type: string
+          minLength: 32
+          description: A new signing secret, at least 32 bytes; the current one is kept when absent.
+      examples:
+        - url: https://rp.example/liveness/hook
+          events: [zakadi.session.completed]
+          active: true
+    Webhook:
+      type: object
+      description: A webhook endpoint (the `webhooks` table of 03 3.8), without its secret.
+      required: [webhook_id, url, events, secret_ref, active, created_at]
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+          description: The endpoint's id.
+        url:
+          type: string
+          format: uri
+          description: The endpoint.
+        events:
+          type: array
+          description: The events delivered to it.
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        secret_ref:
+          type: string
+          description: The reference of the signing secret, which a session's `callback.secret_ref` may name.
+        active:
+          type: boolean
+          description: Whether deliveries are made.
+        created_at:
+          type: string
+          format: date-time
+          description: When the endpoint was created.
+    WebhookList:
+      type: object
+      description: The tenant's endpoints.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The endpoints, at most 5.
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/Webhook'
+    WebhookDelivery:
+      type: object
+      description: One delivery attempt (the `webhook_attempts` table of 03 3.8).
+      required: [webhook_id, event_id, attempt, status, error, at]
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+          description: The endpoint.
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        attempt:
+          type: integer
+          minimum: 1
+          description: The attempt number, 1 for the first delivery.
+        status:
+          type: [integer, 'null']
+          minimum: 100
+          maximum: 599
+          description: The receiver's HTTP status, or null when it did not answer.
+        error:
+          type: [string, 'null']
+          description: Why the attempt failed, or null when it succeeded.
+        at:
+          type: string
+          format: date-time
+          description: When the attempt was made.
+    WebhookDeliveryPage:
+      type: object
+      description: One page of delivery attempts, newest first.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The attempts.
+          items:
+            $ref: '#/components/schemas/WebhookDelivery'
+        next_cursor:
+          type: [string, 'null']
+          description: The `cursor` of the next page, or null on the last page.
+    WebhookEvent:
+      type: object
+      description: >-
+        A webhook delivery body. `data` is the result without `result_token`, which
+        travels beside it; events are idempotent by `id`.
+      required: [id, type, created_at, data, result_token]
+      properties:
+        id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          $ref: '#/components/schemas/WebhookEventType'
+        created_at:
+          type: string
+          format: date-time
+          description: When the event was created.
+        data:
+          $ref: '#/components/schemas/ResultData'
+        result_token:
+          type: string
+          description: The result's ES256 JWS, as in `getResult`.
+
+    PolicySettings:
+      type: object
+      description: >-
+        The body of `updatePolicy`: every setting of the tenant policy (2.5).
+        `thresholds.profile` names an operating point of the fusion model; tenants
+        cannot set raw thresholds.
+      required: [actions, assurance, thresholds, attempts, step_up, languages, retention, dedupe, residency, ui]
+      properties:
+        actions:
+          $ref: '#/components/schemas/PolicyActions'
+        assurance:
+          $ref: '#/components/schemas/PolicyAssurance'
+        thresholds:
+          $ref: '#/components/schemas/PolicyThresholds'
+        attempts:
+          $ref: '#/components/schemas/PolicyAttempts'
+        step_up:
+          $ref: '#/components/schemas/PolicyStepUp'
+        languages:
+          type: array
+          description: The languages sessions may use.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Locale'
+        retention:
+          $ref: '#/components/schemas/PolicyRetention'
+        dedupe:
+          $ref: '#/components/schemas/PolicyDedupe'
+        attestation:
+          $ref: '#/components/schemas/PolicyAttestation'
+        residency:
+          $ref: '#/components/schemas/PolicyResidency'
+        ui:
+          $ref: '#/components/schemas/PolicyUi'
+    Policy:
+      type: object
+      description: The tenant policy (`getPolicy`, `updatePolicy`) with its immutable `version`.
+      allOf:
+        - $ref: '#/components/schemas/PolicySettings'
+        - type: object
+          required: [version]
+          properties:
+            version:
+              type: integer
+              minimum: 1
+              description: The version; every `updatePolicy` creates the next one.
+    PolicyActions:
+      type: object
+      description: How many actions a session asks for, and from which pools.
+      required: [min, max, pool, step_up_pool, require_geometry, require_high_entropy]
+      properties:
+        min:
+          type: integer
+          minimum: 1
+          description: The fewest actions.
+        max:
+          type: integer
+          minimum: 1
+          description: The most actions.
+        pool:
+          type: array
+          description: The kinds actions are drawn from.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChallengeKind'
+        step_up_pool:
+          type: array
+          description: The kinds a step-up draws from.
+          items:
+            $ref: '#/components/schemas/ChallengeKind'
+        require_geometry:
+          type: boolean
+          description: Require an action that checks geometry.
+        require_high_entropy:
+          type: boolean
+          description: Require a high-entropy action.
+      examples:
+        - min: 2
+          max: 3
+          pool: [head_turn, distance, fingers, digits, blink, expression]
+          step_up_pool: [hand_over_face, look_profile]
+          require_geometry: true
+          require_high_entropy: true
+    PolicyAssurance:
+      type: object
+      description: Which bands and channels the tenant accepts.
+      required: [accept_bands, web_allowed, attestation_required]
+      properties:
+        accept_bands:
+          type: array
+          description: The bands accepted.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Band'
+        web_allowed:
+          type: boolean
+          description: Whether web sessions are allowed.
+        attestation_required:
+          type: boolean
+          description: Whether a platform attestation is required.
+      examples:
+        - accept_bands: [A, B]
+          web_allowed: true
+          attestation_required: false
+    PolicyThresholds:
+      type: object
+      description: The named operating point of the fusion model.
+      required: [profile]
+      properties:
+        profile:
+          type: string
+          description: The profile; each is published with its measured BPCER and APCER per release.
+          enum: [balanced, strict, lenient]
+      examples:
+        - profile: balanced
+    PolicyAttempts:
+      type: object
+      description: Attempt and velocity limits.
+      required: [per_action, restarts, sessions_per_user_ref_per_day, sessions_per_face_per_day]
+      properties:
+        per_action:
+          type: integer
+          minimum: 1
+          description: Attempts per action.
+        restarts:
+          type: integer
+          minimum: 0
+          description: Restarts per session.
+        sessions_per_user_ref_per_day:
+          type: integer
+          minimum: 1
+          description: Sessions per `user_ref` per day.
+        sessions_per_face_per_day:
+          type: integer
+          minimum: 1
+          description: Sessions per face per day.
+      examples:
+        - per_action: 3
+          restarts: 2
+          sessions_per_user_ref_per_day: 10
+          sessions_per_face_per_day: 10
+    PolicyStepUp:
+      type: object
+      description: Step-up challenges and the human handoff.
+      required: [enabled, human_handoff, handoff_url]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether step-up challenges are used.
+        human_handoff:
+          type: boolean
+          description: Whether sessions may be handed to a person.
+        handoff_url:
+          type: [string, 'null']
+          format: uri
+          description: Where the handoff goes, or null for none.
+      examples:
+        - enabled: true
+          human_handoff: false
+          handoff_url: null
+    PolicyRetention:
+      type: object
+      description: Retention periods in days.
+      required: [results_days, evidence_days_default, evidence_days_max, evidence_clip_allowed, embeddings_days]
+      properties:
+        results_days:
+          type: integer
+          minimum: 1
+          description: Days results are kept.
+        evidence_days_default:
+          type: integer
+          minimum: 0
+          description: Days evidence is kept when a session does not say.
+        evidence_days_max:
+          type: integer
+          minimum: 0
+          description: The most days a session may keep evidence.
+        evidence_clip_allowed:
+          type: boolean
+          description: Whether sessions may keep a clip.
+        embeddings_days:
+          type: integer
+          minimum: 0
+          description: Days face embeddings are kept.
+      examples:
+        - results_days: 365
+          evidence_days_default: 7
+          evidence_days_max: 30
+          evidence_clip_allowed: false
+          embeddings_days: 30
+    PolicyDedupe:
+      type: object
+      description: Duplicate detection.
+      required: [enabled, cross_session_face_match]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether duplicates are detected.
+        cross_session_face_match:
+          type: boolean
+          description: Whether faces are matched across sessions.
+      examples:
+        - enabled: true
+          cross_session_face_match: true
+    PolicyAttestation:
+      type: object
+      description: >-
+        What the verdict worker needs to verify platform tokens. Without it,
+        attestation tokens are ignored and the session's band is at most `B`.
+      properties:
+        play_integrity:
+          type: object
+          description: >-
+            Play Integrity: the host app's Google Cloud project number, and either
+            `google_api` with a service-account credential the tenant grants or `local`
+            with the keys the tenant exported from Play Console.
+          required: [cloud_project_number, verify, credentials_ref]
+          properties:
+            cloud_project_number:
+              type: string
+              description: The Google Cloud project number.
+              pattern: '^[0-9]+$'
+            verify:
+              type: string
+              description: How tokens are verified.
+              enum: [google_api, local]
+            credentials_ref:
+              type: string
+              description: The reference of the credential or keys.
+        app_attest:
+          type: object
+          description: App Attest.
+          required: [team_id, bundle_id]
+          properties:
+            team_id:
+              type: string
+              description: The Apple team ID.
+            bundle_id:
+              type: string
+              description: The app's bundle ID.
+      examples:
+        - play_integrity:
+            cloud_project_number: '1234567890'
+            verify: google_api
+            credentials_ref: sec_pi_01
+          app_attest:
+            team_id: ABCDE12345
+            bundle_id: com.rp.app
+    PolicyResidency:
+      type: object
+      description: Where sessions are ingested and scored.
+      required: [ingest_regions, gpu_regions, in_country_only]
+      properties:
+        ingest_regions:
+          type: array
+          description: The ingest regions allowed.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Region'
+        gpu_regions:
+          type: array
+          description: The regions models may run in.
+          items:
+            $ref: '#/components/schemas/Region'
+        in_country_only:
+          type: boolean
+          description: Whether data stays in the end user's country.
+      examples:
+        - ingest_regions: [eu-west-2, af-south-1]
+          gpu_regions: [af-south-1]
+          in_country_only: false
+    PolicyUi:
+      type: object
+      description: The tenant's UI settings.
+      required: [character, brand, badge_text]
+      properties:
+        character:
+          type: string
+          description: The on-screen character, or none.
+          enum: [default, none]
+        brand:
+          $ref: '#/components/schemas/Brand'
+        badge_text:
+          type: [string, 'null']
+          description: Text of the badge, or null for none.
+      examples:
+        - character: default
+          brand:
+            primary: '#0A5'
+            logo_url: null
+          badge_text: null
+
+    Usage:
+      type: object
+      description: Session counts per UTC day (the `usage_daily` table of 03 3.8).
+      required: [from, to, data]
+      properties:
+        from:
+          type: string
+          format: date
+          description: The first day counted.
+        to:
+          type: string
+          format: date
+          description: The last day counted.
+        data:
+          type: array
+          description: One row per day, channel, band and status with sessions.
+          items:
+            $ref: '#/components/schemas/UsageRow'
+    UsageRow:
+      type: object
+      description: Sessions of one day, channel, band and status.
+      required: [day, channel, band, status, count]
+      properties:
+        day:
+          type: string
+          format: date
+          description: The UTC day.
+        channel:
+          $ref: '#/components/schemas/Channel'
+        band:
+          type: [string, 'null']
+          description: The band, or null for sessions that ended without one.
+          enum: [A, B, C, null]
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Sessions.
+      examples:
+        - day: '2026-09-21'
+          channel: android
+          band: A
+          status: passed
+          count: 1204
+
+    SdkConfig:
+      type: object
+      description: The `getSdkConfig` response (2.6, D10, D38).
+      required: [min_version, latest_version, kill_switch, wrapper_min_version, message, protocol, prompt_pack_cdn, probe, ladder_version, device_quirks]
+      properties:
+        min_version:
+          $ref: '#/components/schemas/SemVer'
+        latest_version:
+          $ref: '#/components/schemas/SemVer'
+        kill_switch:
+          type: boolean
+          description: When true the SDK refuses to start and shows `message`.
+        wrapper_min_version:
+          type: object
+          description: The lowest wrapper version the SDK starts under, by wrapper package.
+          additionalProperties:
+            $ref: '#/components/schemas/SemVer'
+        message:
+          type: [string, 'null']
+          description: What the SDK shows when it refuses to start, or null.
+        protocol:
+          type: array
+          description: The protocol versions the ingest serves.
+          minItems: 1
+          items:
+            type: string
+            pattern: '^zakadi\.v[0-9]+$'
+        prompt_pack_cdn:
+          type: string
+          format: uri
+          description: The prompt-pack CDN base URL.
+        probe:
+          type: object
+          description: The in-band probe the SDK sends.
+          required: [count, bytes]
+          properties:
+            count:
+              type: integer
+              minimum: 1
+              description: Probe messages.
+            bytes:
+              type: integer
+              minimum: 1
+              description: Bytes per probe message.
+        ladder_version:
+          type: integer
+          minimum: 1
+          description: The version of the rung ladder.
+        device_quirks:
+          type: array
+          description: Per-device capability caps.
+          items:
+            $ref: '#/components/schemas/DeviceQuirk'
+    DeviceQuirk:
+      type: object
+      description: Caps for the devices `match` selects.
+      required: [match, caps]
+      properties:
+        match:
+          $ref: '#/components/schemas/QuirkMatch'
+        caps:
+          $ref: '#/components/schemas/QuirkCaps'
+      examples:
+        - match:
+            platform: android
+            model_prefix: TECNO KI5
+          caps:
+            max_fps: 12
+            prefer_software_encoder: false
+    QuirkMatch:
+      type: object
+      description: Every key present must match.
+      minProperties: 1
+      properties:
+        platform:
+          $ref: '#/components/schemas/Channel'
+        model_prefix:
+          type: string
+          description: A prefix of the device model; on web, from User-Agent Client Hints where available.
+        browser:
+          type: string
+          description: The browser.
+        browser_major_min:
+          type: integer
+          minimum: 0
+          description: The lowest browser major version.
+        browser_major_max:
+          type: integer
+          minimum: 0
+          description: The highest browser major version.
+        os_major_min:
+          type: integer
+          minimum: 0
+          description: The lowest OS major version.
+        os_major_max:
+          type: integer
+          minimum: 0
+          description: The highest OS major version.
+      examples:
+        - platform: web
+          browser: Chrome
+          browser_major_max: 110
+    QuirkCaps:
+      type: object
+      description: The caps applied to a matching device.
+      minProperties: 1
+      properties:
+        max_fps:
+          type: integer
+          minimum: 1
+          description: The highest frame rate.
+        max_rung:
+          type: integer
+          minimum: 0
+          maximum: 15
+          description: The best rung allowed.
+        profile:
+          type: string
+          description: Forces the `mediarecorder` profile.
+          enum: [mediarecorder]
+        prefer_software_encoder:
+          type: boolean
+          description: Prefer the software H.264 encoder.
+      examples:
+        - profile: mediarecorder
+
+    TelemetryBatch:
+      type: object
+      description: >-
+        The body of `sendTelemetry`: at most 100 events and 32 KB, with no media,
+        tokens, landmarks or user identifiers.
+      required: [session_id, sdk, events]
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        sdk:
+          $ref: '#/components/schemas/SdkIdentity'
+        events:
+          type: array
+          description: The events, oldest first.
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/TelemetryEvent'
+      examples:
+        - session_id: ses_01J8ZQ4XKD3M7V2N9B6T5R8W1H
+          sdk:
+            platform: android
+            name: dev.zakadi.sdk
+            version: 1.4.2
+          events:
+            - name: sdk_start
+              t_ms: 0
+    SdkIdentity:
+      type: object
+      description: The SDK sending the events, as `hello.sdk` of the protocol reports it.
+      required: [platform, name, version]
+      properties:
+        platform:
+          $ref: '#/components/schemas/Channel'
+        name:
+          type: string
+          description: The SDK package.
+        version:
+          type: string
+          description: The SDK version.
+        os:
+          type: string
+          description: The operating system.
+        device:
+          type: string
+          description: The device model.
+        browser:
+          type: string
+          description: The browser, on web only.
+        wrapper:
+          type: object
+          description: The wrapper package embedding the SDK.
+          required: [name, version]
+          properties:
+            name:
+              type: string
+              description: The wrapper package.
+            version:
+              type: string
+              description: The wrapper version.
+      examples:
+        - platform: android
+          name: dev.zakadi.sdk
+          version: 1.4.2
+          os: Android 13
+          device: TECNO KI5
+    TelemetryEvent:
+      type: object
+      description: One telemetry event.
+      required: [name, t_ms]
+      properties:
+        name:
+          type: string
+          description: The event name.
+          pattern: '^[a-z][a-z0-9_]*$'
+        t_ms:
+          type: integer
+          minimum: 0
+          description: Milliseconds since `sdk_start` on the SDK's monotonic clock.
+        fields:
+          type: object
+          description: The event's fields.
+      examples:
+        - name: probe
+          t_ms: 3920
+          fields:
+            goodput_kbps: 820
+            rtt_ms: 190
+            start_rung: 2
+
+    Health:
+      type: object
+      description: Control plane liveness.
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: Always `ok` when the control plane answers.
+          enum: [ok]
+    IngestHealth:
+      type: object
+      description: Ingest health per region.
+      required: [regions]
+      properties:
+        regions:
+          type: array
+          description: One entry per ingest region.
+          items:
+            $ref: '#/components/schemas/RegionHealth'
+    RegionHealth:
+      type: object
+      description: One ingest region's health and admission headroom.
+      required: [region, healthy, headroom]
+      properties:
+        region:
+          $ref: '#/components/schemas/Region'
+        healthy:
+          type: boolean
+          description: Whether an edge in the region admits sessions.
+        headroom:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: The free fraction of the region's admission capacity.
+      examples:
+        - region: af-south-1
+          healthy: true
+          headroom: 0.42
+
+    Jwks:
+      type: object
+      description: A JSON Web Key Set (RFC 7517).
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          description: The current key and, for 30 days after a rotation, the previous one.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Jwk'
+    Jwk:
+      type: object
+      description: An ES256 public key.
+      required: [kty, crv, kid, use, alg, x, y]
+      properties:
+        kty:
+          type: string
+          description: The key type.
+          enum: [EC]
+        crv:
+          type: string
+          description: The curve.
+          enum: [P-256]
+        kid:
+          type: string
+          minLength: 1
+          description: The key id tokens name in their header.
+        use:
+          type: string
+          description: The key use.
+          enum: [sig]
+        alg:
+          type: string
+          description: The algorithm.
+          enum: [ES256]
+        x:
+          type: string
+          description: The x coordinate, base64url.
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        y:
+          type: string
+          description: The y coordinate, base64url.
+          pattern: '^[A-Za-z0-9_-]{43}$'
+      examples:
+        - kty: EC
+          crv: P-256
+          kid: cp-2026-09
+          use: sig
+          alg: ES256
+          x: x8aW7uvxnW7tgIIzZ91pu4Gae-kF8ugUK9iDhwx7boM
+          y: YZK8ihiWvX536ipCq13f2156N6vjfxer5s2_2iN6uiY

@@ -94,7 +94,11 @@ class Session:
 
 @dataclass(frozen=True, kw_only=True)
 class Result:
-    """A session's verdict (``GET /v1/sessions/{id}/result``, 2.3)."""
+    """A session's verdict (``GET /v1/sessions/{id}/result``, 2.3).
+
+    ``superseded`` is true on a verdict that replaced one written after a verdict
+    timeout, and False when the API leaves it out.
+    """
 
     session_id: str
     decision: str
@@ -110,6 +114,7 @@ class Result:
     verdict_at: str
     evidence: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    superseded: bool = False
     result_token: str = field(repr=False)
 
 

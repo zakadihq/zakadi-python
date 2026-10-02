@@ -108,6 +108,13 @@ class SessionTests(ClientTestCase):
             self.assertEqual(getattr(result, name), body[name], name)
         self.assertFalse(hasattr(result, "unlisted"))
 
+    def test_result_reads_superseded(self) -> None:
+        body = result_json(self.result_token)
+        self.api.reply("GET", RESULT, ok(body))
+        self.assertIs(self.client.sessions.result("ses_01J8ZK").superseded, False)
+        self.api.reply("GET", RESULT, ok({**body, "superseded": True}))
+        self.assertIs(self.client.sessions.result("ses_01J8ZK").superseded, True)
+
     def test_result_quotes_the_session_id(self) -> None:
         self.api.reply("GET", "/v1/sessions/a%2F..%2Fb/result", ok(result_json("t")))
         self.assertEqual(self.client.sessions.result("a/../b").result_token, "t")

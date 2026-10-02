@@ -43,8 +43,9 @@ jobs:
       - run: uv sync --frozen
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ty check
-      # The pinned copy of the API's OpenAPI document.
+      # The pinned copy of the API's OpenAPI document and the models generated from it.
       - run: sh scripts/fetch-openapi.sh --check
+      - run: uv run --frozen datamodel-codegen --check
       - name: scan
         shell: bash
         env:

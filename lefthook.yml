@@ -23,6 +23,9 @@ pre-commit:
           - name: lint
             glob: "*.py"
             run: uv run --frozen ruff check {staged_files}
+          # The pinned copy of the API's OpenAPI document matches its SHA-256 (D133).
+          - name: openapi
+            run: sh scripts/fetch-openapi.sh --check
 
 commit-msg:
   # git writes the message on merge and rebase.

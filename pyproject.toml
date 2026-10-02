@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "cryptography>=50.0.1",
+    "typing-extensions>=4.16.0",
 ]
 
 [project.urls]
@@ -34,14 +35,32 @@ Issues = "https://github.com/zakadihq/zakadi-python/issues"
 packages = ["src/zakadi"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/zakadi", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+include = ["src/zakadi", "tests", "openapi/openapi.yaml", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
 
 [dependency-groups]
 dev = [
+    "datamodel-code-generator==0.83.0",
     "lefthook>=2.1.14",
+    "pyyaml>=6.0.3",
     "ruff>=0.16.9",
     "ty>=0.0.84",
 ]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
+
+# src/zakadi/models.py comes from the pinned copy of the API's OpenAPI document
+# (scripts/fetch-openapi.sh) through `uv run --frozen datamodel-codegen`; the hooks and
+# CI run the same command with --check. Metadata, an object without declared members,
+# maps to dict: as the empty TypedDict the generator makes of it, no key could be read.
+[tool.datamodel-codegen]
+input = "openapi/openapi.yaml"
+input-file-type = "openapi"
+output = "src/zakadi/models.py"
+output-model-type = "typing.TypedDict"
+target-python-version = "3.10"
+enum-field-as-literal = "all"
+use-standard-primitive-types = false
+type-overrides = { Metadata = "builtins.dict" }
+formatters = ["ruff-check", "ruff-format"]
+disable-timestamp = true

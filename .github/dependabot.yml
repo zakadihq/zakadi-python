@@ -13,6 +13,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # The generator of src/zakadi/models.py is pinned: a new version can change the
+    # generated code, so it moves in a change of its own.
+    ignore:
+      - dependency-name: datamodel-code-generator
     groups:
       uv-minor-and-patch:
         update-types: ["minor", "patch"]

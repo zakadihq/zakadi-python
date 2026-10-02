@@ -1,8 +1,9 @@
 """Server-side client for the Zakadi API (``spec/02-api.md`` 2.11).
 
-``Zakadi`` creates sessions and reads results over ``urllib.request``, verifies webhook
-deliveries (HMAC-SHA256, 2.4) and verifies result tokens (ES256 against the API's JWKS,
-2.8). ``client_token`` and ``result_token`` never appear in a log record or a ``repr``.
+``Zakadi`` calls the API's operations over ``urllib.request``, typed with
+``zakadi.models``, verifies webhook deliveries (HMAC-SHA256, 2.4) and verifies result
+tokens (ES256 against the API's JWKS, 2.8). ``client_token`` and ``result_token`` never
+appear in a log record or a ``repr``.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from email.message import Message
 from typing import IO, Any
@@ -31,9 +32,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from zakadi import models
+
 _log = logging.getLogger(__name__)
 
 _TIMEOUT = 30.0  # seconds per attempt
+_IDEMPOTENT = frozenset({"GET", "PUT", "DELETE"})  # retried methods (RFC 9110 9.2.2)
 _MAX_RETRIES = 2
 _BACKOFF = 0.5  # seconds before the first retry, doubled for each later one
 _MAX_RETRY_AFTER = 60.0  # a longer Retry-After ends the retries instead
@@ -166,31 +170,45 @@ class _Transport:
         self,
         method: str,
         path: str,
-        body: dict[str, Any] | None = None,
+        body: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
-    ) -> dict[str, Any]:
-        """Send one call, retrying 429 and 5xx; return the JSON object it answers.
+        *,
+        query: Mapping[str, Any] | None = None,
+        bodiless: bool = False,
+    ) -> Any:
+        """Send one call; return the JSON object it answers, or None when ``bodiless``.
 
-        The API key goes to ``/v1/`` paths only, never to the public JWKS (2.11).
+        ``bodiless`` marks an operation that answers 202 or 204 without a body; any
+        other success must be a JSON object. ``query`` members that are None are left
+        out. 429 and 5xx are retried for an idempotent call only: GET, PUT and DELETE,
+        and a POST that carries an ``Idempotency-Key``, the same on every attempt (2.1,
+        2.11). The API key goes to ``/v1/`` paths only, never to the public JWKS (2.11).
         """
         headers = dict(self._headers)
         if path.startswith("/v1/"):
             headers["Authorization"] = self._authorization
+        url = self._base_url + path
+        params = {k: v for k, v in (query or {}).items() if v is not None}
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
         data = None
         if body is not None:
             data = json.dumps(body).encode()
             headers["Content-Type"] = "application/json"
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
+        retried = method in _IDEMPOTENT or idempotency_key is not None
         attempt = 0
         while True:
             request = urllib.request.Request(
-                self._base_url + path, data=data, headers=headers, method=method
+                url, data=data, headers=headers, method=method
             )
             status, reply_headers, raw = self._send(request)
             request_id = reply_headers.get("Zakadi-Request-Id")
             _log.debug("%s %s -> %d (request id %s)", method, path, status, request_id)
             if 200 <= status < 300:
+                if bodiless:
+                    return None
                 try:
                     reply = json.loads(raw)
                 except ValueError:
@@ -198,7 +216,7 @@ class _Transport:
                 if not isinstance(reply, dict):
                     raise ApiError(status, None, request_id, None, "not a JSON object")
                 return reply
-            if (status == 429 or status >= 500) and attempt < _MAX_RETRIES:
+            if retried and (status == 429 or status >= 500) and attempt < _MAX_RETRIES:
                 delay = _retry_delay(attempt, reply_headers.get("Retry-After"))
                 if delay is not None:
                     _log.info(
@@ -261,8 +279,13 @@ def _api_error(status: int, request_id: str | None, raw: bytes) -> ApiError:
     )
 
 
+def _quote(value: str) -> str:
+    """A path parameter as one path segment: percent-encoded, ``/`` included."""
+    return urllib.parse.quote(value, safe="")
+
+
 class Sessions:
-    """``client.sessions``: create a session and read its result."""
+    """``client.sessions``: create, read, list, cancel and purge sessions (2.2, 2.3)."""
 
     def __init__(self, transport: _Transport) -> None:
         self._transport = transport
@@ -307,8 +330,121 @@ class Sessions:
 
         Raises ``ResultPending`` until the verdict exists.
         """
-        path = f"/v1/sessions/{urllib.parse.quote(session_id, safe='')}/result"
+        path = f"/v1/sessions/{_quote(session_id)}/result"
         return Result(**_known(Result, self._transport.request("GET", path)))
+
+    def get(self, session_id: str) -> models.Session:
+        """``GET /v1/sessions/{id}`` (``getSession``): its status and timestamps."""
+        return self._transport.request("GET", f"/v1/sessions/{_quote(session_id)}")
+
+    def list(
+        self,
+        *,
+        user_ref: str | None = None,
+        status: models.SessionStatus | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> models.SessionPage:
+        """``GET /v1/sessions`` (``listSessions``): one page of sessions, newest first.
+
+        The arguments are the query parameters, ``from_`` for ``from``; None ones are
+        left out. A page's ``next_cursor`` is the ``cursor`` of the next one.
+        """
+        query = {
+            "user_ref": user_ref,
+            "status": status,
+            "from": from_,
+            "to": to,
+            "cursor": cursor,
+            "limit": limit,
+        }
+        return self._transport.request("GET", "/v1/sessions", query=query)
+
+    def cancel(self, session_id: str) -> models.Session:
+        """``POST /v1/sessions/{id}/cancel`` (``cancelSession``), never retried.
+
+        Returns the cancelled session; one that has ended raises ``ApiError`` with
+        ``session_not_cancellable``.
+        """
+        path = f"/v1/sessions/{_quote(session_id)}/cancel"
+        return self._transport.request("POST", path)
+
+    def evidence(self, session_id: str) -> models.SessionEvidence:
+        """``GET /v1/sessions/{id}/evidence`` (``getEvidence``, scope ``evidence:read``).
+
+        Raises ``ResultPending`` until the verdict exists.
+        """
+        path = f"/v1/sessions/{_quote(session_id)}/evidence"
+        return self._transport.request("GET", path)
+
+    def purge(self, session_id: str) -> None:
+        """``DELETE /v1/sessions/{id}`` (``purgeSession``): purges the session's data.
+
+        The API answers 202 without a body. Raises ``ResultPending`` until the verdict
+        exists.
+        """
+        path = f"/v1/sessions/{_quote(session_id)}"
+        self._transport.request("DELETE", path, bodiless=True)
+
+
+class Subjects:
+    """``client.subjects``: data-subject deletion (2.3)."""
+
+    def __init__(self, transport: _Transport) -> None:
+        self._transport = transport
+
+    def purge(self, *, user_ref: str) -> models.Job:
+        """``POST /v1/subjects/purge`` (``purgeSubject``), never retried.
+
+        Purges everything held for ``user_ref`` across sessions; returns the job, which
+        ``jobs.get`` reports on.
+        """
+        body = {"user_ref": user_ref}
+        return self._transport.request("POST", "/v1/subjects/purge", body)
+
+
+class Jobs:
+    """``client.jobs``: the jobs ``subjects.purge`` starts (2.3)."""
+
+    def __init__(self, transport: _Transport) -> None:
+        self._transport = transport
+
+    def get(self, job_id: str) -> models.Job:
+        """``GET /v1/jobs/{id}`` (``getJob``): the job's state."""
+        return self._transport.request("GET", f"/v1/jobs/{_quote(job_id)}")
+
+
+class Tenants:
+    """``client.tenants``: the tenant policy (2.5) and usage (2.7)."""
+
+    def __init__(self, transport: _Transport) -> None:
+        self._transport = transport
+
+    def policy(self, tenant_id: str) -> models.Policy:
+        """``GET /v1/tenants/{id}/policy`` (``getPolicy``): the current version."""
+        path = f"/v1/tenants/{_quote(tenant_id)}/policy"
+        return self._transport.request("GET", path)
+
+    def update_policy(
+        self, tenant_id: str, policy: models.PolicySettings
+    ) -> models.Policy:
+        """``PUT /v1/tenants/{id}/policy`` (``updatePolicy``): a new version.
+
+        ``policy`` carries every setting; a ``version`` in it is ignored. Returns the
+        new version, which sessions created from then on pin.
+        """
+        path = f"/v1/tenants/{_quote(tenant_id)}/policy"
+        return self._transport.request("PUT", path, policy)
+
+    def usage(self, tenant_id: str, *, from_: str, to: str) -> models.Usage:
+        """``GET /v1/tenants/{id}/usage`` (``getUsage``): sessions counted per UTC day.
+
+        ``from_`` and ``to`` are the first and the last day counted, ``YYYY-MM-DD``.
+        """
+        path = f"/v1/tenants/{_quote(tenant_id)}/usage"
+        return self._transport.request("GET", path, query={"from": from_, "to": to})
 
 
 class Results:
@@ -445,7 +581,77 @@ def _json_segment(value: str) -> dict[str, Any]:
 
 
 class Webhooks:
-    """``client.webhooks``: verify a webhook delivery (2.4)."""
+    """``client.webhooks``: manage webhook endpoints and verify deliveries (2.4)."""
+
+    def __init__(self, transport: _Transport) -> None:
+        self._transport = transport
+
+    def create(
+        self,
+        *,
+        url: str,
+        events: Sequence[models.WebhookEventType],
+        secret: str,
+        active: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> models.Webhook:
+        """``POST /v1/webhooks`` (``createWebhook``): registers an endpoint.
+
+        A tenant has at most 5. ``secret`` signs the deliveries and is never returned;
+        ``active`` is left out when None, which the API reads as true. Every attempt
+        carries the same ``Idempotency-Key``: ``idempotency_key`` when given, else one
+        generated for this call.
+        """
+        body: dict[str, Any] = {"url": url, "events": [*events], "secret": secret}
+        if active is not None:
+            body["active"] = active
+        key = idempotency_key or str(uuid.uuid4())
+        return self._transport.request("POST", "/v1/webhooks", body, key)
+
+    def get(self, webhook_id: str) -> models.Webhook:
+        """``GET /v1/webhooks/{id}`` (``getWebhook``): one endpoint, without its secret."""
+        return self._transport.request("GET", f"/v1/webhooks/{_quote(webhook_id)}")
+
+    def update(
+        self,
+        webhook_id: str,
+        *,
+        url: str,
+        events: Sequence[models.WebhookEventType],
+        active: bool,
+        secret: str | None = None,
+    ) -> models.Webhook:
+        """``PUT /v1/webhooks/{id}`` (``updateWebhook``): replaces the endpoint.
+
+        ``url``, ``events`` and ``active`` replace the current ones; ``secret``, when
+        given, replaces the signing secret, which is kept otherwise.
+        """
+        body: dict[str, Any] = {"url": url, "events": [*events], "active": active}
+        if secret is not None:
+            body["secret"] = secret
+        path = f"/v1/webhooks/{_quote(webhook_id)}"
+        return self._transport.request("PUT", path, body)
+
+    def delete(self, webhook_id: str) -> None:
+        """``DELETE /v1/webhooks/{id}`` (``deleteWebhook``), answered 204 without a body."""
+        path = f"/v1/webhooks/{_quote(webhook_id)}"
+        self._transport.request("DELETE", path, bodiless=True)
+
+    def deliveries(
+        self, webhook_id: str, *, cursor: str | None = None, limit: int | None = None
+    ) -> models.WebhookDeliveryPage:
+        """``GET /v1/webhooks/{id}/deliveries`` (``listWebhookDeliveries``).
+
+        One page of the endpoint's delivery attempts, newest first; None arguments are
+        left out of the query.
+        """
+        path = f"/v1/webhooks/{_quote(webhook_id)}/deliveries"
+        query = {"cursor": cursor, "limit": limit}
+        return self._transport.request("GET", path, query=query)
+
+    def list(self) -> models.WebhookList:
+        """``GET /v1/webhooks`` (``listWebhooks``): the tenant's endpoints."""
+        return self._transport.request("GET", "/v1/webhooks")
 
     def verify(
         self, headers: Mapping[str, str], raw_body: bytes | str, *, secret: str | bytes
@@ -498,9 +704,11 @@ class Zakadi:
     """Client for the Zakadi server-to-server API (2.11).
 
     Every ``/v1/`` request carries ``Authorization: Bearer <api_key>``; the JWKS
-    request goes without it. Each request times out after 30 s and is retried twice
-    on 429 and 5xx with backoff that honours ``Retry-After``. Transport failures
-    (timeouts, refused connections) propagate from urllib.
+    request goes without it. Each request times out after 30 s. An idempotent call
+    (GET, PUT, DELETE, or a POST with an ``Idempotency-Key``) is retried twice on 429
+    and 5xx with backoff that honours ``Retry-After``; ``sessions.cancel`` and
+    ``subjects.purge`` are not retried. Transport failures (timeouts, refused
+    connections) propagate from urllib.
     """
 
     def __init__(
@@ -510,5 +718,8 @@ class Zakadi:
             raise ValueError("api_key is required")
         transport = _Transport(api_key, base_url)
         self.sessions = Sessions(transport)
+        self.subjects = Subjects(transport)
+        self.jobs = Jobs(transport)
         self.results = Results(transport)
-        self.webhooks = Webhooks()
+        self.webhooks = Webhooks(transport)
+        self.tenants = Tenants(transport)

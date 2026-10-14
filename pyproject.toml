@@ -21,7 +21,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-    "cryptography>=50.0.1",
+    "cryptography>=50.0.2",
     "typing-extensions>=4.16.0",
 ]
 
@@ -40,10 +40,10 @@ include = ["src/zakadi", "tests", "openapi/openapi.yaml", "README.md", "CHANGELO
 [dependency-groups]
 dev = [
     "datamodel-code-generator==0.83.0",
-    "lefthook>=2.1.14",
+    "lefthook>=2.2.1",
     "pyyaml>=6.0.3",
-    "ruff>=0.16.9",
-    "ty>=0.0.84",
+    "ruff>=0.17.0",
+    "ty>=0.0.86",
 ]
 
 [tool.ruff.lint]
